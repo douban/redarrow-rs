@@ -1,8 +1,9 @@
 name: redarrow
-version: "1.0"
+version: "0.1.0"
 args:
-    - command:
+    - args:
         index: 1
+        multiple: true
     - detail:
         help: Output the detail information of running
         long: detail
@@ -17,5 +18,3 @@ args:
         long: port
         help: Redarrow service port
         default_value: "4205"
-    - args:
-        index: 2
