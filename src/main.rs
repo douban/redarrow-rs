@@ -28,6 +28,16 @@ fn main() {
         }
     }
 
-    let exit_code = client::run_remote_command(host, port,command,arguments);
+    let mut exit_code: i32 = 0;
+    if host.contains(",") {
+        let hosts: Vec<&str> = host.split(",").collect();
+        let codes = client::remote_run_in_parallel(hosts, port, command, arguments);
+        if !codes.iter().all(|&x| x == 0) {
+            exit_code = 1;
+        }
+    } else {
+        exit_code = client::realtime_run_command(host, port, command, arguments);
+    }
+
     std::process::exit(exit_code);
 }
