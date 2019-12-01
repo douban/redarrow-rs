@@ -1,0 +1,21 @@
+name: redarrow
+version: "1.0"
+args:
+    - command:
+        index: 1
+    - detail:
+        help: Output the detail information of running
+        long: detail
+    - list:
+        help: List available commands
+        long: list
+    - host:
+        long: host
+        help: Comma-seperated redarrow service hosts
+        default_value: localhost
+    - port:
+        long: port
+        help: Redarrow service port
+        default_value: "4205"
+    - args:
+        index: 2
