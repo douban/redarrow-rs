@@ -4,9 +4,9 @@ args:
     - args:
         index: 1
         multiple: true
-    - detail:
-        help: Output the detail information of running
-        long: detail
+    # - detail:
+    #     help: Output the detail information of running
+    #     long: detail
     - list:
         help: List available commands
         long: list
