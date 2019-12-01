@@ -28,6 +28,14 @@ fn main() {
         }
     }
 
+    if command == "" {
+        std::process::exit({
+            App::from(yaml).print_help().unwrap();
+            println!("");
+            2
+        });
+    }
+
     let mut exit_code: i32 = 0;
     if host.contains(",") {
         let hosts: Vec<&str> = host.split(",").collect();
