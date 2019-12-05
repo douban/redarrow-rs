@@ -8,10 +8,20 @@ extern crate serde_json;
 
 mod client;
 
+use std::thread;
+use std::io::Write;
+use std::io::stdout;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 
-use futures::executor::LocalPool;
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct Result {
+    time_cost: f64,
+    start_time: f64,
+    exit_code: i32,
+    error: String,
+}
+
 
 fn main() {
     use clap::App;
@@ -19,20 +29,20 @@ fn main() {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from(yaml).get_matches();
 
-    let host = matches.value_of("host").unwrap();
+    let host = matches.value_of("host").unwrap().to_string();
     let port = value_t!(matches, "port", u32).unwrap_or(4205);
 
-    let mut command: &str = "";
-    let mut arguments: Vec<&str> = Vec::new();
+    let mut command: String = "".to_string();
+    let mut arguments: Vec<String> = Vec::new();
     if matches.is_present("list") {
-        command = "*LIST*"
+        command = "*LIST*".to_string()
     } else {
         if let Some(args) = matches.values_of("args") {
             for (index, value) in args.enumerate() {
                 if index == 0 {
-                    command = value
+                    command = value.to_string();
                 } else {
-                    arguments.push(value);
+                    arguments.push(value.to_string());
                 }
             }
         }
@@ -46,23 +56,27 @@ fn main() {
         });
     }
 
-    let exit_code: i32;
-    let mut pool = LocalPool::new();
-
-    if host.contains(",") {
-        let hosts: Vec<&str> = host.split(",").collect();
-        let (tx, rx): (Sender<(String, i8, String)>, Receiver<(String, i8, String)>) = mpsc::channel();
-        pool.run_until(client::run_parallel(hosts, port, command, arguments, tx));
-        exit_code = print_multple_hosts_result(rx);
-    } else {
-        let (tx, rx): (Sender<(i8, String)>, Receiver<(i8, String)>) = mpsc::channel();
-        pool.run_until(client::rt_run(host, port, command, arguments, tx));
-        exit_code = print_result(rx);
-    }
-
+    let exit_code = remote_run_cmd(host, port, command, arguments);
     std::process::exit(exit_code);
 }
 
+
+fn remote_run_cmd(host: String, port: u32, command: String, arguments: Vec<String>) -> i32 {
+    let exit_code: i32;
+    if host.contains(",") {
+        let hosts: Vec<String> = host.split(",").map(|s| s.to_string()).collect();
+        let (tx, rx): (Sender<(String, i8, String)>, Receiver<(String, i8, String)>) = mpsc::channel();
+        let child = thread::spawn(move ||client::run_parallel(hosts, port, command, arguments, tx));
+        exit_code = print_multple_hosts_result(rx);
+        child.join().unwrap();
+    } else {
+        let (tx, rx): (Sender<(i8, String)>, Receiver<(i8, String)>) = mpsc::channel();
+        let child = thread::spawn(move ||client::rt_run(host, port, command, arguments, tx));
+        exit_code = print_result(rx);
+        child.join().unwrap();
+    }
+    exit_code
+}
 
 fn print_result(rx: Receiver<(i8, String)>) -> i32 {
     let mut finishied = false;
@@ -70,10 +84,20 @@ fn print_result(rx: Receiver<(i8, String)>) -> i32 {
     while !finishied {
         let (fd, line) = rx.recv().unwrap_or((-1, String::from("UnfinishedCmd")));
         match fd {
-            0 => {finishied = true},
-            1 => println!("{}", line),
-            2 => eprintln!("{}", line),
-            _ => {finishied = true},
+            0 => {
+                finishied = true;
+                // let v: Result = serde_json::from_str(line);
+            },
+            1 => {
+                print!("{}", line);
+                stdout().flush().unwrap();
+            },
+            2 => eprint!("{}", line),
+            _ => {
+                finishied = true;
+                eprintln!("{}", line);
+                ret = 2;
+            },
         }
     }
     ret
