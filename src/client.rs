@@ -5,8 +5,6 @@ use hyper::rt::{self, Future, Stream};
 use hyper::Client;
 use url::form_urlencoded;
 
-
-
 fn build_url(host: String, port: u32, command: String, arguments: Vec<String>) -> String {
     let mut param_builder = form_urlencoded::Serializer::new(String::new());
     param_builder.append_pair("chunked", "1");
@@ -31,8 +29,13 @@ fn parse_chunk(s: String) -> (i8, String) {
     (fd, line.to_string())
 }
 
-
-pub fn rt_run(host: String, port: u32, command: String, arguments: Vec<String>, tx: Sender<(i8, String)>) {
+pub fn rt_run(
+    host: String,
+    port: u32,
+    command: String,
+    arguments: Vec<String>,
+    tx: Sender<(i8, String)>,
+) {
     let url = build_url(host, port, command, arguments).parse().unwrap();
     rt::run({
         let client = Client::new();
@@ -52,7 +55,13 @@ pub fn rt_run(host: String, port: u32, command: String, arguments: Vec<String>, 
     });
 }
 
-pub fn run_parallel(hosts: Vec<String>, port: u32, command: String, arguments: Vec<String>, tx: Sender<(String, i8, String)>) {
+pub fn run_parallel(
+    hosts: Vec<String>,
+    port: u32,
+    command: String,
+    arguments: Vec<String>,
+    tx: Sender<(String, i8, String)>,
+) {
     for h in &hosts {
         println!("host: {}", h);
     }

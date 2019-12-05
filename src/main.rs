@@ -3,12 +3,11 @@ extern crate clap;
 
 mod client;
 
-use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 
 use serde_json::Value;
-
 
 fn main() {
     use clap::App;
@@ -48,18 +47,25 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-
-fn remote_run_cmd(host: String, port: u32, command: String, arguments: Vec<String>, detail: bool) -> i32 {
+fn remote_run_cmd(
+    host: String,
+    port: u32,
+    command: String,
+    arguments: Vec<String>,
+    detail: bool,
+) -> i32 {
     let exit_code: i32;
     if host.contains(",") {
         let hosts: Vec<String> = host.split(",").map(|s| s.to_string()).collect();
-        let (tx, rx): (Sender<(String, i8, String)>, Receiver<(String, i8, String)>) = mpsc::channel();
-        let child = thread::spawn(move ||client::run_parallel(hosts, port, command, arguments, tx));
+        let (tx, rx): (Sender<(String, i8, String)>, Receiver<(String, i8, String)>) =
+            mpsc::channel();
+        let child =
+            thread::spawn(move || client::run_parallel(hosts, port, command, arguments, tx));
         exit_code = print_multple_hosts_result(rx);
         child.join().unwrap();
     } else {
         let (tx, rx): (Sender<(i8, String)>, Receiver<(i8, String)>) = mpsc::channel();
-        let child = thread::spawn(move ||client::rt_run(host, port, command, arguments, tx));
+        let child = thread::spawn(move || client::rt_run(host, port, command, arguments, tx));
         exit_code = print_result(rx, detail);
         child.join().unwrap();
     }
@@ -85,22 +91,22 @@ fn print_result(rx: Receiver<(i8, String)>, detail: bool) -> i32 {
                     eprintln!("{}", v["error"]);
                     ret = 3;
                 }
-            },
+            }
             1 => print!("{}", line),
             2 => eprint!("{}", line),
             _ => {
                 finishied = true;
                 eprintln!("{}", line);
                 ret = 2;
-            },
+            }
         }
     }
     ret
 }
 
 fn print_multple_hosts_result(rx: Receiver<(String, i8, String)>) -> i32 {
-        // if !codes.iter().all(|&x| x == 0) {
-        //     exit_code = 1;
-        // }
+    // if !codes.iter().all(|&x| x == 0) {
+    //     exit_code = 1;
+    // }
     0
 }
