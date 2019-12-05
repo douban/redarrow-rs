@@ -31,7 +31,6 @@ fn parse_chunk(s: String) -> (i8, String) {
     (fd, line.to_string())
 }
 
-// {"time_cost": 0.029803991317749023, "start_time": 1575272652.624216, "exit_code": 0, "stderr": "", "stdout": " 15:44:12 up 105 days, 23:41,  8 users,  load average: 7.77, 10.36, 6.26\n"}
 
 pub fn rt_run(host: String, port: u32, command: String, arguments: Vec<String>, tx: Sender<(i8, String)>) {
     let url = build_url(host, port, command, arguments).parse().unwrap();
