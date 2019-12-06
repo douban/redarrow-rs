@@ -3,6 +3,7 @@ extern crate clap;
 
 mod client;
 
+use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -60,7 +61,12 @@ fn remote_run_cmd(opts: client::Opts, detail: bool) -> i32 {
     let (tx, rx): (Sender<client::Result>, Receiver<client::Result>) = mpsc::channel();
     if opts.host.contains(",") {
         let child = thread::spawn(move || client::run_parallel(opts, tx));
-        exit_code = print_multple_hosts_result(rx, detail);
+        let exit_codes = print_multple_hosts_result(rx);
+        if exit_codes.iter().all(|(_, exit_code)| *exit_code == 0) {
+            exit_code = 0;
+        } else {
+            exit_code = 1;
+        }
         child.join().unwrap();
     } else {
         let child = thread::spawn(move || client::rt_run(opts, tx));
@@ -106,9 +112,67 @@ fn print_result(rx: Receiver<client::Result>, detail: bool) -> i32 {
     ret
 }
 
-fn print_multple_hosts_result(_rx: Receiver<client::Result>, _detail: bool) -> i32 {
-    // if !codes.iter().all(|&x| x == 0) {
-    //     exit_code = 1;
-    // }
-    0
+fn print_multple_hosts_result(rx: Receiver<client::Result>) -> BTreeMap<String, i32> {
+    let mut finishied = false;
+
+    let mut metas: BTreeMap<String, i32> = BTreeMap::new();
+    let mut output: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    while !finishied {
+        let result = rx.recv().unwrap_or(client::Result {
+            host: "".to_string(),
+            fd: -1,
+            line: "UnfinishedCmd".to_string(),
+        });
+        match result.fd {
+            0 => {
+                let v: serde_json::Value = serde_json::from_str(result.line.as_str()).unwrap();
+                println!(">>>>> {} <<<<<", &result.host);
+                if let Some(o) = output.get_mut(&result.host) {
+                    for l in o {
+                        print!("{}", l);
+                    }
+                }
+                let exit_code: i32;
+                if v["error"].is_null() {
+                    exit_code = v["exit_code"].as_i64().unwrap() as i32;
+                    println!(">>>>> {} returns {} <<<<<", result.host, exit_code);
+                } else {
+                    println!(">>>>> {} returns error: <<<<<", result.host);
+                    eprint!("{}", v["error"]);
+                    exit_code = -1;
+                }
+                print!("\n----------------------------------------\n");
+                metas.insert(result.host, exit_code);
+            }
+            1 | 2 => {
+                if let Some(o) = output.get_mut(&result.host) {
+                    o.push(result.line);
+                } else {
+                    output.insert(result.host, vec![result.line]);
+                }
+            }
+            _ => {
+                finishied = true;
+                // eprintln!("{}", result.line);
+                // metas.insert("".to_string(), -1);
+            }
+        }
+    }
+    let bad_hosts: BTreeMap<String, i32> = metas
+        .iter()
+        .filter(|(_, exit_code)| **exit_code != 0)
+        .map(|(host, exit_code)| ((*host).to_string().clone(), *exit_code))
+        .collect();
+    println!(
+        "{} hosts in total, {} are okay.",
+        metas.len(),
+        metas.len() - bad_hosts.len()
+    );
+    if bad_hosts.len() > 0 {
+        println!("There is something wrong with these hosts:");
+        for (host, exit_code) in &bad_hosts {
+            println!("{}: {}", host, exit_code);
+        }
+    }
+    metas
 }

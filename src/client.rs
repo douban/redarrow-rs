@@ -1,5 +1,6 @@
 use std::str;
 use std::sync::mpsc::Sender;
+use std::thread;
 
 use hyper::rt::{self, Future, Stream};
 use hyper::Client;
@@ -29,10 +30,7 @@ impl Opts {
 
         format!(
             "http://{}:{}/command/{}?{}",
-            self.host,
-            self.port,
-            self.command,
-            param
+            self.host, self.port, self.command, param
         )
     }
 }
@@ -69,14 +67,28 @@ pub fn rt_run(opts: Opts, tx: Sender<Result>) {
     });
 }
 
-pub fn run_parallel(opts: Opts, _tx: Sender<Result>) {
+pub fn run_parallel(opts: Opts, tx: Sender<Result>) {
     let hosts: Vec<&str> = opts.host.split(",").collect();
-    for h in hosts {
-        println!("host: {}", h);
+
+    // println!("port: {}", opts.port);
+    // println!("command: {}", opts.command);
+    // for a in opts.arguments {
+    //     println!("argument: {}", a);
+    // }
+    let mut children = Vec::new();
+    for host in hosts {
+        let opts = Opts {
+            host: host.to_string(),
+            port: opts.port,
+            command: opts.command.clone(),
+            arguments: opts.arguments.clone(),
+        };
+        let tx = tx.clone();
+        let child = thread::spawn(move || rt_run(opts, tx));
+        children.push(child);
     }
-    println!("port: {}", opts.port);
-    println!("command: {}", opts.command);
-    for a in opts.arguments {
-        println!("argument: {}", a);
+    for child in children {
+        // TODO:(everpcpc) error handling
+        let _ = child.join().unwrap();
     }
 }
