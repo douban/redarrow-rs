@@ -1,4 +1,4 @@
-# redarrow-client
+# redarrow-rust
 
 Redarrow bindings for Rust
 
