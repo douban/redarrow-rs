@@ -1,5 +1,5 @@
-name: redarrow
-version: "0.1.0"
+name: redarrow-client
+version: "0.3.0"
 args:
     - args:
         index: 1
