@@ -153,8 +153,6 @@ fn print_multple_hosts_result(rx: Receiver<client::Result>) -> BTreeMap<String, 
             }
             _ => {
                 finishied = true;
-                // eprintln!("{}", result.line);
-                // metas.insert("".to_string(), -1);
             }
         }
     }

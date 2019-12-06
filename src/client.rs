@@ -69,12 +69,6 @@ pub fn rt_run(opts: Opts, tx: Sender<Result>) {
 
 pub fn run_parallel(opts: Opts, tx: Sender<Result>) {
     let hosts: Vec<&str> = opts.host.split(",").collect();
-
-    // println!("port: {}", opts.port);
-    // println!("command: {}", opts.command);
-    // for a in opts.arguments {
-    //     println!("argument: {}", a);
-    // }
     let mut children = Vec::new();
     for host in hosts {
         let opts = Opts {
