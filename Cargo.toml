@@ -1,8 +1,16 @@
 [package]
-name = "redarrow-client"
-version = "0.3.0"
+name = "redarrow"
+version = "0.4.0"
 authors = ["everpcpc <git@everpcpc.com>"]
 edition = "2018"
+
+[[bin]]
+name = "redarrow-client"
+path = "src/client/main.rs"
+
+[[bin]]
+name = "redarrow-check"
+path = "src/check/main.rs"
 
 [dependencies]
 clap = { version = "2.33", features = ["yaml"] }
