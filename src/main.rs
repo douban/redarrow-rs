@@ -11,12 +11,6 @@ use std::thread;
 use serde_json;
 
 fn main() {
-    let (opts, detail) = parse_args();
-    let exit_code = remote_run_cmd(opts, detail);
-    std::process::exit(exit_code);
-}
-
-fn parse_args() -> (client::Opts, bool) {
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from(yaml).get_matches();
 
@@ -45,20 +39,21 @@ fn parse_args() -> (client::Opts, bool) {
             });
         }
     }
-    (
-        client::Opts {
-            host: host,
-            port: port,
-            command: command,
-            arguments: arguments,
-        },
-        detail,
-    )
+
+    let opts = client::Opts {
+        host: host,
+        port: port,
+        command: command,
+        arguments: arguments,
+    };
+
+    let exit_code = remote_run_cmd(opts, detail);
+    std::process::exit(exit_code);
 }
 
 fn remote_run_cmd(opts: client::Opts, detail: bool) -> i32 {
     let exit_code: i32;
-    let (tx, rx): (Sender<client::Result>, Receiver<client::Result>) = mpsc::channel();
+    let (tx, rx): (Sender<client::It>, Receiver<client::It>) = mpsc::channel();
     if opts.host.contains(",") {
         let child = thread::spawn(move || client::run_parallel(opts, tx));
         let exit_codes = print_multple_hosts_result(rx);
@@ -76,18 +71,16 @@ fn remote_run_cmd(opts: client::Opts, detail: bool) -> i32 {
     exit_code
 }
 
-fn print_result(rx: Receiver<client::Result>, detail: bool) -> i32 {
-    let mut finishied = false;
+fn print_result(rx: Receiver<client::It>, detail: bool) -> i32 {
     let mut ret = 0;
-    while !finishied {
-        let result = rx.recv().unwrap_or(client::Result {
+    loop {
+        let result = rx.recv().unwrap_or(client::It {
             host: "".to_string(),
-            fd: -1,
-            line: "UnfinishedCmd".to_string(),
+            fd: 0,
+            line: format!("{{\"error\": \"Command unfinished\"}}"),
         });
         match result.fd {
             0 => {
-                finishied = true;
                 let v: serde_json::Value = serde_json::from_str(result.line.as_str()).unwrap();
                 if detail {
                     eprintln!("{}", "=".repeat(40));
@@ -96,33 +89,34 @@ fn print_result(rx: Receiver<client::Result>, detail: bool) -> i32 {
                 if v["error"].is_null() {
                     ret = v["exit_code"].as_i64().unwrap() as i32;
                 } else {
-                    eprintln!("{}", v["error"]);
+                    eprintln!("Error: {}", v["error"]);
                     ret = 3;
                 }
+                break;
             }
             1 => print!("{}", result.line),
             2 => eprint!("{}", result.line),
             _ => {
-                finishied = true;
-                eprintln!("{}", result.line);
-                ret = 2;
+                eprintln!("Unknown result: {:?}", result);
+                break;
             }
         }
     }
     ret
 }
 
-fn print_multple_hosts_result(rx: Receiver<client::Result>) -> BTreeMap<String, i32> {
-    let mut finishied = false;
-
+fn print_multple_hosts_result(rx: Receiver<client::It>) -> BTreeMap<String, i32> {
     let mut metas: BTreeMap<String, i32> = BTreeMap::new();
     let mut output: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    while !finishied {
-        let result = rx.recv().unwrap_or(client::Result {
+    loop {
+        let result = rx.recv().unwrap_or(client::It {
             host: "".to_string(),
-            fd: -1,
-            line: "UnfinishedCmd".to_string(),
+            fd: 0,
+            line: format!("{{\"error\": \"All finished\"}}"),
         });
+        if result.host == "" {
+            break;
+        }
         match result.fd {
             0 => {
                 let v: serde_json::Value = serde_json::from_str(result.line.as_str()).unwrap();
@@ -152,7 +146,8 @@ fn print_multple_hosts_result(rx: Receiver<client::Result>) -> BTreeMap<String, 
                 }
             }
             _ => {
-                finishied = true;
+                eprintln!("Unknown result: {:?}", result);
+                break;
             }
         }
     }

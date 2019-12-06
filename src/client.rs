@@ -1,16 +1,19 @@
 use std::str;
 use std::sync::mpsc::Sender;
 use std::thread;
+use std::time::Duration;
 
 use curl::easy::Easy;
 use url::form_urlencoded;
 
-pub struct Result {
+#[derive(Debug)]
+pub struct It {
     pub host: String,
     pub fd: i8,
     pub line: String,
 }
 
+#[derive(Debug)]
 pub struct Opts {
     pub host: String,
     pub port: u32,
@@ -41,24 +44,37 @@ fn parse_chunk(s: &str) -> (i8, &str) {
     (fd, line)
 }
 
-pub fn rt_run(opts: Opts, tx: Sender<Result>) {
-    let mut easy = Easy::new();
-    easy.url(opts.build_url().as_str()).unwrap();
-    easy.write_function(move |data| {
-        let (fd, line) = parse_chunk(str::from_utf8(data).unwrap());
-        tx.send(Result {
-            host: opts.host.clone(),
-            fd: fd,
-            line: line.to_string(),
+pub fn rt_run(opts: Opts, tx: Sender<It>) {
+    let mut handle = Easy::new();
+    handle.connect_timeout(Duration::new(3, 0)).unwrap();
+    handle.url(opts.build_url().as_str()).unwrap();
+
+    let mut transfer = handle.transfer();
+    transfer
+        .write_function(|data| {
+            let v = str::from_utf8(data).unwrap();
+            let (fd, line) = parse_chunk(v);
+            tx.send(It {
+                host: opts.host.clone(),
+                fd: fd,
+                line: line.to_string(),
+            })
+            .unwrap();
+            Ok(data.len())
         })
         .unwrap();
-        Ok(data.len())
+
+    transfer.perform().unwrap_or_else(|e| {
+        tx.send(It {
+            host: opts.host.clone(),
+            fd: 0,
+            line: format!("{{\"error\": \"{}\"}}", e),
+        })
+        .unwrap();
     })
-    .unwrap();
-    easy.perform().unwrap();
 }
 
-pub fn run_parallel(opts: Opts, tx: Sender<Result>) {
+pub fn run_parallel(opts: Opts, tx: Sender<It>) {
     let hosts: Vec<&str> = opts.host.split(",").collect();
     let mut children = Vec::new();
     for host in hosts {
@@ -72,8 +88,8 @@ pub fn run_parallel(opts: Opts, tx: Sender<Result>) {
         let child = thread::spawn(move || rt_run(opts, tx));
         children.push(child);
     }
+
     for child in children {
-        // TODO:(everpcpc) error handling
-        let _ = child.join().unwrap();
+        child.join().unwrap();
     }
 }
