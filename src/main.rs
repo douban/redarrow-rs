@@ -7,13 +7,17 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use serde_json::Value;
+use serde_json;
 
 fn main() {
-    use clap::App;
+    let (opts, detail) = parse_args();
+    let exit_code = remote_run_cmd(opts, detail);
+    std::process::exit(exit_code);
+}
 
+fn parse_args() -> (client::Opts, bool) {
     let yaml = load_yaml!("cli.yml");
-    let matches = App::from(yaml).get_matches();
+    let matches = clap::App::from(yaml).get_matches();
 
     let host = matches.value_of("host").unwrap().to_string();
     let port = value_t!(matches, "port", u32).unwrap_or(4205);
@@ -21,8 +25,9 @@ fn main() {
 
     let mut command: String = "".to_string();
     let mut arguments: Vec<String> = Vec::new();
+
     if matches.is_present("list") {
-        command = "*LIST*".to_string()
+        command = "*LIST*".to_string();
     } else {
         if let Some(args) = matches.values_of("args") {
             for (index, value) in args.enumerate() {
@@ -32,55 +37,52 @@ fn main() {
                     arguments.push(value.to_string());
                 }
             }
+        } else {
+            std::process::exit({
+                eprintln!("Error: command missing");
+                2
+            });
         }
     }
-
-    if command == "" {
-        std::process::exit({
-            App::from(yaml).print_help().unwrap();
-            println!("");
-            2
-        });
-    }
-
-    let exit_code = remote_run_cmd(host, port, command, arguments, detail);
-    std::process::exit(exit_code);
+    (
+        client::Opts {
+            host: host,
+            port: port,
+            command: command,
+            arguments: arguments,
+        },
+        detail,
+    )
 }
 
-fn remote_run_cmd(
-    host: String,
-    port: u32,
-    command: String,
-    arguments: Vec<String>,
-    detail: bool,
-) -> i32 {
+fn remote_run_cmd(opts: client::Opts, detail: bool) -> i32 {
     let exit_code: i32;
-    if host.contains(",") {
-        let hosts: Vec<String> = host.split(",").map(|s| s.to_string()).collect();
-        let (tx, rx): (Sender<(String, i8, String)>, Receiver<(String, i8, String)>) =
-            mpsc::channel();
-        let child =
-            thread::spawn(move || client::run_parallel(hosts, port, command, arguments, tx));
-        exit_code = print_multple_hosts_result(rx);
+    let (tx, rx): (Sender<client::Result>, Receiver<client::Result>) = mpsc::channel();
+    if opts.host.contains(",") {
+        let child = thread::spawn(move || client::run_parallel(opts, tx));
+        exit_code = print_multple_hosts_result(rx, detail);
         child.join().unwrap();
     } else {
-        let (tx, rx): (Sender<(i8, String)>, Receiver<(i8, String)>) = mpsc::channel();
-        let child = thread::spawn(move || client::rt_run(host, port, command, arguments, tx));
+        let child = thread::spawn(move || client::rt_run(opts, tx));
         exit_code = print_result(rx, detail);
         child.join().unwrap();
     }
     exit_code
 }
 
-fn print_result(rx: Receiver<(i8, String)>, detail: bool) -> i32 {
+fn print_result(rx: Receiver<client::Result>, detail: bool) -> i32 {
     let mut finishied = false;
     let mut ret = 0;
     while !finishied {
-        let (fd, line) = rx.recv().unwrap_or((-1, String::from("UnfinishedCmd")));
-        match fd {
+        let result = rx.recv().unwrap_or(client::Result {
+            host: "".to_string(),
+            fd: -1,
+            line: "UnfinishedCmd".to_string(),
+        });
+        match result.fd {
             0 => {
                 finishied = true;
-                let v: Value = serde_json::from_str(line.as_str()).unwrap();
+                let v: serde_json::Value = serde_json::from_str(result.line.as_str()).unwrap();
                 if detail {
                     eprintln!("{}", "=".repeat(40));
                     eprintln!("{}", serde_json::to_string_pretty(&v).unwrap());
@@ -92,11 +94,11 @@ fn print_result(rx: Receiver<(i8, String)>, detail: bool) -> i32 {
                     ret = 3;
                 }
             }
-            1 => print!("{}", line),
-            2 => eprint!("{}", line),
+            1 => print!("{}", result.line),
+            2 => eprint!("{}", result.line),
             _ => {
                 finishied = true;
-                eprintln!("{}", line);
+                eprintln!("{}", result.line);
                 ret = 2;
             }
         }
@@ -104,7 +106,7 @@ fn print_result(rx: Receiver<(i8, String)>, detail: bool) -> i32 {
     ret
 }
 
-fn print_multple_hosts_result(rx: Receiver<(String, i8, String)>) -> i32 {
+fn print_multple_hosts_result(_rx: Receiver<client::Result>, _detail: bool) -> i32 {
     // if !codes.iter().all(|&x| x == 0) {
     //     exit_code = 1;
     // }

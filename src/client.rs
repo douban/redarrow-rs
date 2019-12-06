@@ -5,38 +5,47 @@ use hyper::rt::{self, Future, Stream};
 use hyper::Client;
 use url::form_urlencoded;
 
-fn build_url(host: String, port: u32, command: String, arguments: Vec<String>) -> String {
-    let mut param_builder = form_urlencoded::Serializer::new(String::new());
-    param_builder.append_pair("chunked", "1");
-    if !arguments.is_empty() {
-        param_builder.append_pair("argument", arguments.join(" ").as_str());
-    }
-    let param = param_builder.finish();
-
-    format!(
-        "http://{}:{}/command/{}?{}",
-        host,
-        port,
-        command,
-        param.as_str()
-    )
+pub struct Result {
+    pub host: String,
+    pub fd: i8,
+    pub line: String,
 }
 
-fn parse_chunk(s: String) -> (i8, String) {
+pub struct Opts {
+    pub host: String,
+    pub port: u32,
+    pub command: String,
+    pub arguments: Vec<String>,
+}
+
+impl Opts {
+    fn build_url(self: &Self) -> String {
+        let mut param_builder = form_urlencoded::Serializer::new(String::new());
+        param_builder.append_pair("chunked", "1");
+        if !self.arguments.is_empty() {
+            param_builder.append_pair("argument", self.arguments.join(" ").as_str());
+        }
+        let param = param_builder.finish();
+
+        format!(
+            "http://{}:{}/command/{}?{}",
+            self.host,
+            self.port,
+            self.command,
+            param
+        )
+    }
+}
+
+fn parse_chunk(s: &str) -> (i8, &str) {
     let mut v = s.splitn(2, "> ");
     let fd: i8 = v.next().unwrap().parse().unwrap();
     let line = v.next().unwrap();
-    (fd, line.to_string())
+    (fd, line)
 }
 
-pub fn rt_run(
-    host: String,
-    port: u32,
-    command: String,
-    arguments: Vec<String>,
-    tx: Sender<(i8, String)>,
-) {
-    let url = build_url(host, port, command, arguments).parse().unwrap();
+pub fn rt_run(opts: Opts, tx: Sender<Result>) {
+    let url = opts.build_url().parse().unwrap();
     rt::run({
         let client = Client::new();
         client
@@ -44,8 +53,13 @@ pub fn rt_run(
             .and_then(move |res| {
                 res.into_body().for_each(move |chunk| {
                     let b = &chunk.into_bytes();
-                    let (fd, line) = parse_chunk(str::from_utf8(b).unwrap().to_string());
-                    tx.send((fd, String::from(line))).unwrap();
+                    let (fd, line) = parse_chunk(str::from_utf8(b).unwrap());
+                    tx.send(Result {
+                        host: opts.host.clone(),
+                        fd: fd,
+                        line: line.to_string(),
+                    })
+                    .unwrap();
                     Ok(())
                 })
             })
@@ -55,19 +69,14 @@ pub fn rt_run(
     });
 }
 
-pub fn run_parallel(
-    hosts: Vec<String>,
-    port: u32,
-    command: String,
-    arguments: Vec<String>,
-    tx: Sender<(String, i8, String)>,
-) {
-    for h in &hosts {
+pub fn run_parallel(opts: Opts, _tx: Sender<Result>) {
+    let hosts: Vec<&str> = opts.host.split(",").collect();
+    for h in hosts {
         println!("host: {}", h);
     }
-    println!("port: {}", port);
-    println!("command: {}", command);
-    for a in &arguments {
+    println!("port: {}", opts.port);
+    println!("command: {}", opts.command);
+    for a in opts.arguments {
         println!("argument: {}", a);
     }
 }
