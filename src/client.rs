@@ -2,8 +2,7 @@ use std::str;
 use std::sync::mpsc::Sender;
 use std::thread;
 
-use hyper::rt::{self, Future, Stream};
-use hyper::Client;
+use curl::easy::Easy;
 use url::form_urlencoded;
 
 pub struct Result {
@@ -43,28 +42,20 @@ fn parse_chunk(s: &str) -> (i8, &str) {
 }
 
 pub fn rt_run(opts: Opts, tx: Sender<Result>) {
-    let url = opts.build_url().parse().unwrap();
-    rt::run({
-        let client = Client::new();
-        client
-            .get(url)
-            .and_then(move |res| {
-                res.into_body().for_each(move |chunk| {
-                    let b = &chunk.into_bytes();
-                    let (fd, line) = parse_chunk(str::from_utf8(b).unwrap());
-                    tx.send(Result {
-                        host: opts.host.clone(),
-                        fd: fd,
-                        line: line.to_string(),
-                    })
-                    .unwrap();
-                    Ok(())
-                })
-            })
-            .map_err(|err| {
-                println!("Error: {}", err);
-            })
-    });
+    let mut easy = Easy::new();
+    easy.url(opts.build_url().as_str()).unwrap();
+    easy.write_function(move |data| {
+        let (fd, line) = parse_chunk(str::from_utf8(data).unwrap());
+        tx.send(Result {
+            host: opts.host.clone(),
+            fd: fd,
+            line: line.to_string(),
+        })
+        .unwrap();
+        Ok(data.len())
+    })
+    .unwrap();
+    easy.perform().unwrap();
 }
 
 pub fn run_parallel(opts: Opts, tx: Sender<Result>) {
