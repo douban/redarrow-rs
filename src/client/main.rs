@@ -6,8 +6,6 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use serde_json;
-
 use redarrow::webclient;
 
 fn main() {
@@ -40,13 +38,7 @@ fn main() {
         }
     }
 
-    let opts = webclient::Opts {
-        host: host,
-        port: port,
-        command: command,
-        arguments: arguments,
-    };
-
+    let opts = webclient::Opts::new(host, port, command, arguments);
     let exit_code = remote_run_cmd(opts, detail);
     std::process::exit(exit_code);
 }
@@ -64,7 +56,7 @@ fn remote_run_cmd(opts: webclient::Opts, detail: bool) -> i32 {
         }
         child.join().unwrap();
     } else {
-        let child = thread::spawn(move || webclient::rt_run(opts, tx));
+        let child = thread::spawn(move || webclient::run_realtime(opts, tx));
         exit_code = print_result(rx, detail);
         child.join().unwrap();
     }

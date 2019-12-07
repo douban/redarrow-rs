@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-// use redarrow::webclient;
+use redarrow::webclient;
 
 fn main() {
     let yaml = load_yaml!("cli.yml");
@@ -23,4 +23,9 @@ fn main() {
     println!("host {}", host);
     println!("command {}", command);
     println!("arguments {:?}", arguments);
+
+    let opts = webclient::Opts::new(host, 4205, command, arguments);
+    let ret = webclient::run_command(opts);
+    println!("{}", serde_json::to_string_pretty(&ret).unwrap())
+
 }

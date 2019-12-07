@@ -4,6 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use curl::easy::Easy;
+use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
 
 #[derive(Debug)]
@@ -21,10 +22,33 @@ pub struct Opts {
     pub arguments: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Result {
+    pub stdout: String,
+    pub stderr: String,
+
+    #[serde(default)]
+    pub exit_code: i32,
+
+    #[serde(default)]
+    pub error: String,
+}
+
 impl Opts {
-    fn build_url(self: &Self) -> String {
+    pub fn new(host: String, port: u32, command: String, arguments: Vec<String>) -> Opts {
+        Opts {
+            host: host,
+            port: port,
+            command: command,
+            arguments: arguments,
+        }
+    }
+
+    fn build_url(self: &Self, chunked: bool) -> String {
         let mut param_builder = form_urlencoded::Serializer::new(String::new());
-        param_builder.append_pair("chunked", "1");
+        if chunked {
+            param_builder.append_pair("chunked", "1");
+        }
         if !self.arguments.is_empty() {
             param_builder.append_pair("argument", self.arguments.join(" ").as_str());
         }
@@ -43,11 +67,30 @@ fn parse_chunk(s: &str) -> (i8, &str) {
     (fd, line)
 }
 
-pub fn rt_run(opts: Opts, tx: Sender<It>) {
-    let mut handle = Easy::new();
-    handle.connect_timeout(Duration::new(3, 0)).unwrap();
-    handle.url(opts.build_url().as_str()).unwrap();
-    let mut transfer = handle.transfer();
+pub fn run_command(opts: Opts) -> Result {
+    let mut dst = Vec::new();
+    let mut easy = Easy::new();
+    easy.connect_timeout(Duration::new(3, 0)).unwrap();
+    easy.url(opts.build_url(false).as_str()).unwrap();
+    {
+        let mut transfer = easy.transfer();
+        transfer
+            .write_function(|data| {
+                dst.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .unwrap();
+        transfer.perform().unwrap();
+    }
+    let body = String::from_utf8(dst).unwrap();
+    serde_json::from_str(body.as_str()).unwrap()
+}
+
+pub fn run_realtime(opts: Opts, tx: Sender<It>) {
+    let mut easy = Easy::new();
+    easy.connect_timeout(Duration::new(3, 0)).unwrap();
+    easy.url(opts.build_url(true).as_str()).unwrap();
+    let mut transfer = easy.transfer();
     transfer
         .write_function(|data| {
             let v = str::from_utf8(data).unwrap();
@@ -82,7 +125,7 @@ pub fn run_parallel(opts: Opts, tx: Sender<It>) {
             arguments: opts.arguments.clone(),
         };
         let tx = tx.clone();
-        let child = thread::spawn(move || rt_run(opts, tx));
+        let child = thread::spawn(move || run_realtime(opts, tx));
         children.push(child);
     }
     for child in children {
