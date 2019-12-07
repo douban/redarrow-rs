@@ -29,7 +29,6 @@ impl Opts {
             param_builder.append_pair("argument", self.arguments.join(" ").as_str());
         }
         let param = param_builder.finish();
-
         format!(
             "http://{}:{}/command/{}?{}",
             self.host, self.port, self.command, param
@@ -48,7 +47,6 @@ pub fn rt_run(opts: Opts, tx: Sender<It>) {
     let mut handle = Easy::new();
     handle.connect_timeout(Duration::new(3, 0)).unwrap();
     handle.url(opts.build_url().as_str()).unwrap();
-
     let mut transfer = handle.transfer();
     transfer
         .write_function(|data| {
@@ -63,7 +61,6 @@ pub fn rt_run(opts: Opts, tx: Sender<It>) {
             Ok(data.len())
         })
         .unwrap();
-
     transfer.perform().unwrap_or_else(|e| {
         tx.send(It {
             host: opts.host.clone(),
@@ -88,7 +85,6 @@ pub fn run_parallel(opts: Opts, tx: Sender<It>) {
         let child = thread::spawn(move || rt_run(opts, tx));
         children.push(child);
     }
-
     for child in children {
         child.join().unwrap();
     }

@@ -1,0 +1,33 @@
+name: redarrow-check
+about: Execute remote nagios check from a redarrow server
+args:
+    - host:
+        index: 1
+        required: true
+    - command:
+        index: 2
+        required: true
+    - arguments:
+        long: arguments
+        short: a
+        takes_value: true
+        help: Redarrow command arguments
+    - warning:
+        long: warning
+        short: w
+        help: Warning threshold
+        takes_value: true
+    - critical:
+        long: critical
+        short: c
+        help: Critical threshold
+        takes_value: true
+    - raw:
+        long: raw
+        short: r
+        help: Use remote output and return code directly
+    - quiet:
+        long: quiet
+        short: q
+        help: Catch all redarrow run_command exceptions and not alert
+

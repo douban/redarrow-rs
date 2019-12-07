@@ -1,5 +1,5 @@
 name: redarrow-client
-version: "0.3.0"
+about: Execute remote command from a redarrow server
 args:
     - args:
         index: 1

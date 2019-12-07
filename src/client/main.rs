@@ -1,14 +1,14 @@
 #[macro_use]
 extern crate clap;
 
-mod client;
-
 use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
 use serde_json;
+
+use redarrow::webclient;
 
 fn main() {
     let yaml = load_yaml!("cli.yml");
@@ -40,7 +40,7 @@ fn main() {
         }
     }
 
-    let opts = client::Opts {
+    let opts = webclient::Opts {
         host: host,
         port: port,
         command: command,
@@ -51,11 +51,11 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn remote_run_cmd(opts: client::Opts, detail: bool) -> i32 {
+fn remote_run_cmd(opts: webclient::Opts, detail: bool) -> i32 {
     let exit_code: i32;
-    let (tx, rx): (Sender<client::It>, Receiver<client::It>) = mpsc::channel();
+    let (tx, rx): (Sender<webclient::It>, Receiver<webclient::It>) = mpsc::channel();
     if opts.host.contains(",") {
-        let child = thread::spawn(move || client::run_parallel(opts, tx));
+        let child = thread::spawn(move || webclient::run_parallel(opts, tx));
         let exit_codes = print_multple_hosts_result(rx);
         if exit_codes.iter().all(|(_, exit_code)| *exit_code == 0) {
             exit_code = 0;
@@ -64,17 +64,17 @@ fn remote_run_cmd(opts: client::Opts, detail: bool) -> i32 {
         }
         child.join().unwrap();
     } else {
-        let child = thread::spawn(move || client::rt_run(opts, tx));
+        let child = thread::spawn(move || webclient::rt_run(opts, tx));
         exit_code = print_result(rx, detail);
         child.join().unwrap();
     }
     exit_code
 }
 
-fn print_result(rx: Receiver<client::It>, detail: bool) -> i32 {
+fn print_result(rx: Receiver<webclient::It>, detail: bool) -> i32 {
     let mut ret = 0;
     loop {
-        let result = rx.recv().unwrap_or(client::It {
+        let result = rx.recv().unwrap_or(webclient::It {
             host: "".to_string(),
             fd: 0,
             line: format!("{{\"error\": \"Command unfinished\"}}"),
@@ -105,11 +105,11 @@ fn print_result(rx: Receiver<client::It>, detail: bool) -> i32 {
     ret
 }
 
-fn print_multple_hosts_result(rx: Receiver<client::It>) -> BTreeMap<String, i32> {
+fn print_multple_hosts_result(rx: Receiver<webclient::It>) -> BTreeMap<String, i32> {
     let mut metas: BTreeMap<String, i32> = BTreeMap::new();
     let mut output: BTreeMap<String, Vec<String>> = BTreeMap::new();
     loop {
-        let result = rx.recv().unwrap_or(client::It {
+        let result = rx.recv().unwrap_or(webclient::It {
             host: "".to_string(),
             fd: 0,
             line: format!("{{\"error\": \"All finished\"}}"),
