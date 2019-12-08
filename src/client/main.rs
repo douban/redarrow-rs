@@ -38,16 +38,12 @@ fn main() {
         }
     }
 
-    let opts = webclient::Opts::new(host, port, command, arguments);
-    let exit_code = remote_run_cmd(opts, detail);
-    std::process::exit(exit_code);
-}
-
-fn remote_run_cmd(opts: webclient::Opts, detail: bool) -> i32 {
     let exit_code: i32;
+
+    let client = webclient::Client::new(host, port, command, arguments);
     let (tx, rx): (Sender<webclient::It>, Receiver<webclient::It>) = mpsc::channel();
-    if opts.host.contains(",") {
-        let child = thread::spawn(move || webclient::run_parallel(opts, tx));
+    if client.host.contains(",") {
+        let child = thread::spawn(move || client.run_parallel(tx));
         let exit_codes = print_multple_hosts_result(rx);
         if exit_codes.iter().all(|(_, exit_code)| *exit_code == 0) {
             exit_code = 0;
@@ -56,11 +52,12 @@ fn remote_run_cmd(opts: webclient::Opts, detail: bool) -> i32 {
         }
         child.join().unwrap();
     } else {
-        let child = thread::spawn(move || webclient::run_realtime(opts, tx));
+        let child = thread::spawn(move || client.run_realtime(tx));
         exit_code = print_result(rx, detail);
         child.join().unwrap();
     }
-    exit_code
+
+    std::process::exit(exit_code);
 }
 
 fn print_result(rx: Receiver<webclient::It>, detail: bool) -> i32 {

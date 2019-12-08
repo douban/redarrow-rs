@@ -90,10 +90,11 @@ fn main() {
     }
 
     let quiet = matches.is_present("quiet");
-    let opts = webclient::Opts::new(host, 4205, command, arguments);
 
     let ret: webclient::CommandResult;
-    let result = webclient::run_command(opts);
+
+    let client = webclient::Client::new(host, 4205, command, arguments);
+    let result = client.run_command();
     match result {
         Ok(v) => {
             ret = v;
