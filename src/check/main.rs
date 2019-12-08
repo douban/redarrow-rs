@@ -127,11 +127,8 @@ fn main() {
         } else {
             output = "OK".to_string();
         }
-
-        std::process::exit({
-            println!("{}", output);
-            ret.exit_code
-        });
+        println!("{}", output);
+        std::process::exit(ret.exit_code);
     }
 
     let value: f64 = ret.stdout.parse().unwrap();
