@@ -81,11 +81,31 @@ fn main() {
             .collect();
     }
 
+    let quiet = matches.is_present("quiet");
     let opts = webclient::Opts::new(host, 4205, command, arguments);
-    let mut ret = webclient::run_command(opts);
 
-    if ret.error != "" {
-        ret.exit_code = 3;
+    let ret: webclient::CommandResult;
+    let result = webclient::run_command(opts);
+    match result {
+        Ok(v) => {
+            ret = v;
+            if ret.error != "" {
+                if quiet {
+                    std::process::exit(0);
+                } else {
+                    eprintln!("remote internal error: {}", ret.error);
+                    std::process::exit(3);
+                }
+            }
+        }
+        Err(e) => {
+            if quiet {
+                std::process::exit(0);
+            } else {
+                eprintln!("local internal error: {}", e);
+                std::process::exit(3);
+            }
+        }
     }
 
     if matches.is_present("raw") {

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::str;
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -7,11 +8,43 @@ use curl::easy::Easy;
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
 
-#[derive(Debug)]
-pub struct It {
-    pub host: String,
-    pub fd: i8,
-    pub line: String,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RedarrowError {
+    kind: String,
+    message: String,
+}
+
+impl fmt::Display for RedarrowError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} Error: {}", self.kind, self.message)
+    }
+}
+
+impl From<curl::Error> for RedarrowError {
+    fn from(error: curl::Error) -> Self {
+        RedarrowError {
+            kind: String::from("curl"),
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for RedarrowError {
+    fn from(error: std::string::FromUtf8Error) -> Self {
+        RedarrowError {
+            kind: String::from("FromUtf8"),
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<serde_json::error::Error> for RedarrowError {
+    fn from(error: serde_json::error::Error) -> Self {
+        RedarrowError {
+            kind: String::from("serde_json"),
+            message: error.to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -20,18 +53,6 @@ pub struct Opts {
     pub port: u32,
     pub command: String,
     pub arguments: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Result {
-    pub stdout: String,
-    pub stderr: String,
-
-    #[serde(default)]
-    pub exit_code: i32,
-
-    #[serde(default)]
-    pub error: String,
 }
 
 impl Opts {
@@ -60,6 +81,30 @@ impl Opts {
     }
 }
 
+#[derive(Debug)]
+pub struct It {
+    pub host: String,
+    pub fd: i8,
+    pub line: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CommandResult {
+    pub stdout: String,
+    pub stderr: String,
+
+    #[serde(default)]
+    pub exit_code: i32,
+
+    #[serde(default)]
+    pub time_cost: f64,
+    #[serde(default)]
+    pub start_time: f64,
+
+    #[serde(default)]
+    pub error: String,
+}
+
 fn parse_chunk(s: &str) -> (i8, &str) {
     let mut v = s.splitn(2, "> ");
     let fd: i8 = v.next().unwrap().parse().unwrap();
@@ -67,23 +112,22 @@ fn parse_chunk(s: &str) -> (i8, &str) {
     (fd, line)
 }
 
-pub fn run_command(opts: Opts) -> Result {
+pub fn run_command(opts: Opts) -> Result<CommandResult, RedarrowError> {
     let mut dst = Vec::new();
     let mut easy = Easy::new();
-    easy.connect_timeout(Duration::new(3, 0)).unwrap();
-    easy.url(opts.build_url(false).as_str()).unwrap();
+    easy.connect_timeout(Duration::new(3, 0))?;
+    easy.url(opts.build_url(false).as_str())?;
     {
         let mut transfer = easy.transfer();
-        transfer
-            .write_function(|data| {
-                dst.extend_from_slice(data);
-                Ok(data.len())
-            })
-            .unwrap();
-        transfer.perform().unwrap();
+        transfer.write_function(|data| {
+            dst.extend_from_slice(data);
+            Ok(data.len())
+        })?;
+        transfer.perform()?;
     }
-    let body = String::from_utf8(dst).unwrap();
-    serde_json::from_str(body.as_str()).unwrap()
+    let body = String::from_utf8(dst)?;
+    let ret: CommandResult = serde_json::from_str(body.as_str())?;
+    Ok(ret)
 }
 
 pub fn run_realtime(opts: Opts, tx: Sender<It>) {
