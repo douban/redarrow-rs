@@ -62,6 +62,14 @@ impl Threshold {
             value.parse().unwrap()
         }
     }
+
+    fn should_alert(self: &Self, value: f64) -> bool {
+        if self.inside {
+            self.start <= value && value <= self.end
+        } else {
+            value < self.start || self.end < value
+        }
+    }
 }
 
 fn main() {
@@ -129,25 +137,17 @@ fn main() {
     let value: f64 = ret.stdout.parse().unwrap();
     println!("{}", ret.stdout);
 
-    let exit_code: i32;
-    if matches.is_present("critical") && should_alert(value, matches.value_of("critical").unwrap())
-    {
-        exit_code = 2;
-    } else if matches.is_present("warning")
-        && should_alert(value, matches.value_of("warning").unwrap())
-    {
-        exit_code = 1;
-    } else {
-        exit_code = 0;
+    if matches.is_present("critical") {
+        let threshold = Threshold::parse(matches.value_of("critical").unwrap());
+        if threshold.should_alert(value) {
+            std::process::exit(2);
+        }
     }
-    std::process::exit(exit_code);
-}
-
-fn should_alert(value: f64, range_str: &str) -> bool {
-    let threshold = Threshold::parse(range_str);
-    if threshold.inside {
-        threshold.start <= value && value <= threshold.end
-    } else {
-        value < threshold.start || threshold.end < value
+    if matches.is_present("warning") {
+        let threshold = Threshold::parse(matches.value_of("warning").unwrap());
+        if threshold.should_alert(value) {
+            std::process::exit(1);
+        }
     }
+    std::process::exit(0);
 }
