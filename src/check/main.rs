@@ -76,17 +76,12 @@ fn main() {
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from(yaml).get_matches();
 
-    let host = matches.value_of("host").unwrap().to_string();
-    let command = matches.value_of("command").unwrap().to_string();
+    let host = matches.value_of("host").unwrap();
+    let command = matches.value_of("command").unwrap();
 
-    let mut arguments: Vec<String> = Vec::new();
+    let mut arguments: Vec<&str> = Vec::new();
     if matches.is_present("arguments") {
-        arguments = matches
-            .value_of("arguments")
-            .unwrap()
-            .split(" ")
-            .map(|x| x.to_string())
-            .collect();
+        arguments = matches.value_of("arguments").unwrap().split(" ").collect();
     }
 
     let quiet = matches.is_present("quiet");

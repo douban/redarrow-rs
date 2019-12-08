@@ -4,6 +4,12 @@ Redarrow bindings for Rust
 
 Originally from https://github.intra.douban.com/platform/redarrow
 
+## example
+
+```rust
+let client = webclient::Client::new(host, 4205, command, arguments);
+let result = client.run_command();
+```
 
 ## comparison with other clients
 

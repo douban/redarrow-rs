@@ -12,22 +12,22 @@ fn main() {
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from(yaml).get_matches();
 
-    let host = matches.value_of("host").unwrap().to_string();
+    let host = matches.value_of("host").unwrap();
     let port = value_t!(matches, "port", u32).unwrap_or(4205);
     let detail = matches.is_present("detail");
 
-    let mut command: String = "".to_string();
-    let mut arguments: Vec<String> = Vec::new();
+    let mut command: &str = "";
+    let mut arguments: Vec<&str> = Vec::new();
 
     if matches.is_present("list") {
-        command = "*LIST*".to_string();
+        command = "*LIST*";
     } else {
         if let Some(args) = matches.values_of("args") {
             for (index, value) in args.enumerate() {
                 if index == 0 {
-                    command = value.to_string();
+                    command = value;
                 } else {
-                    arguments.push(value.to_string());
+                    arguments.push(value);
                 }
             }
         } else {
