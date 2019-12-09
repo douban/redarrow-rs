@@ -127,8 +127,8 @@ fn main() {
         std::process::exit(ret.exit_code);
     }
 
-    let value: f64 = ret.stdout.parse().unwrap();
     println!("{}", ret.stdout);
+    let value: f64 = ret.stdout.trim().parse().unwrap();
 
     if matches.is_present("critical") {
         let threshold = Threshold::parse(matches.value_of("critical").unwrap());
