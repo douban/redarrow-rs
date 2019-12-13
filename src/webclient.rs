@@ -1,5 +1,6 @@
 use std::fmt;
 use std::str;
+use std::sync::atomic::{AtomicI8, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
@@ -28,7 +29,6 @@ impl From<curl::Error> for RedarrowError {
         }
     }
 }
-
 impl From<std::string::FromUtf8Error> for RedarrowError {
     fn from(error: std::string::FromUtf8Error) -> Self {
         RedarrowError {
@@ -37,7 +37,6 @@ impl From<std::string::FromUtf8Error> for RedarrowError {
         }
     }
 }
-
 impl From<serde_json::error::Error> for RedarrowError {
     fn from(error: serde_json::error::Error) -> Self {
         RedarrowError {
@@ -126,28 +125,36 @@ impl Client {
         let mut easy = Easy::new();
         easy.connect_timeout(Duration::new(3, 0)).unwrap();
         easy.url(self.build_url(true).as_str()).unwrap();
-        let mut transfer = easy.transfer();
-        transfer
-            .write_function(|data| {
-                let v = str::from_utf8(data).unwrap();
-                let (fd, line) = parse_chunk(v);
-                tx.send(It {
-                    host: self.host.clone(),
-                    fd: fd,
-                    line: line.to_string(),
+        let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
+        {
+            let mut transfer = easy.transfer();
+            transfer
+                .write_function(|data| {
+                    let v = str::from_utf8(data).unwrap();
+                    let (mut fd, line) = parse_chunk(v);
+                    if fd < 0 {
+                        fd = last_fd.load(Ordering::SeqCst);
+                    } else {
+                        last_fd.store(fd, Ordering::SeqCst);
+                    }
+                    tx.send(It {
+                        host: self.host.clone(),
+                        fd: fd,
+                        line: line.to_string(),
+                    })
+                    .unwrap();
+                    Ok(data.len())
                 })
                 .unwrap();
-                Ok(data.len())
+            transfer.perform().unwrap_or_else(|e| {
+                tx.send(It {
+                    host: self.host.clone(),
+                    fd: 0,
+                    line: format!("{{\"error\": \"{}\"}}", e),
+                })
+                .unwrap();
             })
-            .unwrap();
-        transfer.perform().unwrap_or_else(|e| {
-            tx.send(It {
-                host: self.host.clone(),
-                fd: 0,
-                line: format!("{{\"error\": \"{}\"}}", e),
-            })
-            .unwrap();
-        })
+        }
     }
 
     pub fn run_parallel(self: &Self, tx: Sender<It>) {
@@ -171,8 +178,13 @@ impl Client {
 }
 
 fn parse_chunk(s: &str) -> (i8, &str) {
-    let mut v = s.splitn(2, "> ");
-    let fd: i8 = v.next().unwrap().parse().unwrap();
-    let line = v.next().unwrap();
-    (fd, line)
+    if s.starts_with("0> ") {
+        (0, s.trim_start_matches("0> "))
+    } else if s.starts_with("1> ") {
+        (1, s.trim_start_matches("1> "))
+    } else if s.starts_with("2> ") {
+        (2, s.trim_start_matches("2> "))
+    } else {
+        (-1, s)
+    }
 }
