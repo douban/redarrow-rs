@@ -126,23 +126,28 @@ impl Client {
         easy.connect_timeout(Duration::new(3, 0)).unwrap();
         easy.url(self.build_url(true).as_str()).unwrap();
         let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
+        let mut tmp = "".to_string();
         {
             let mut transfer = easy.transfer();
             transfer
                 .write_function(|data| {
                     let v = str::from_utf8(data).unwrap();
-                    let (mut fd, line) = parse_chunk(v);
-                    if fd < 0 {
-                        fd = last_fd.load(Ordering::SeqCst);
-                    } else {
-                        last_fd.store(fd, Ordering::SeqCst);
+                    tmp.push_str(v);
+                    if v.ends_with("\n") {
+                        let (mut fd, line) = parse_chunk(tmp.as_str());
+                        if fd < 0 {
+                            fd = last_fd.load(Ordering::SeqCst);
+                        } else {
+                            last_fd.store(fd, Ordering::SeqCst);
+                        }
+                        tx.send(It {
+                            host: self.host.clone(),
+                            fd: fd,
+                            line: line.to_string(),
+                        })
+                        .unwrap();
+                        tmp.clear();
                     }
-                    tx.send(It {
-                        host: self.host.clone(),
-                        fd: fd,
-                        line: line.to_string(),
-                    })
-                    .unwrap();
                     Ok(data.len())
                 })
                 .unwrap();
