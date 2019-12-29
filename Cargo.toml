@@ -1,10 +1,13 @@
 [package]
 name = "redarrow"
-version = "0.8.2"
+version = "0.8.3"
 authors = ["everpcpc <git@everpcpc.com>"]
 edition = "2018"
 license = "MIT"
-
+description = "Execute commands on remote servers."
+readme = "README.md"
+keywords = ["redarrow", "remote", "atomation"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "redarrow-client"
