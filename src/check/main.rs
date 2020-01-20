@@ -3,7 +3,7 @@ extern crate clap;
 
 use std::f64::{INFINITY, NEG_INFINITY};
 
-use redarrow::{webclient, dispatcher};
+use redarrow::{dispatcher, webclient};
 
 /*
 Threshold format: [@]start:end
@@ -93,12 +93,15 @@ fn main() {
     match result {
         Ok(v) => {
             ret = v;
-            if ret.error != "" {
-                if quiet {
-                    std::process::exit(0);
-                } else {
-                    eprintln!("remote internal error: {}", ret.error);
-                    std::process::exit(3);
+            match ret.error {
+                None => {}
+                Some(err) => {
+                    if quiet {
+                        std::process::exit(0);
+                    } else {
+                        eprintln!("remote internal error: {}", err);
+                        std::process::exit(3);
+                    }
                 }
             }
         }
@@ -118,13 +121,13 @@ fn main() {
             output = ret.stdout;
         } else if ret.stderr != "" {
             output = ret.stderr;
-        } else if ret.exit_code != 0 {
-            output = format!("Error: exit code is {}", ret.exit_code);
+        } else if ret.exit_code.unwrap() != 0 {
+            output = format!("Error: exit code is {}", ret.exit_code.unwrap());
         } else {
             output = "OK".to_string();
         }
         println!("{}", output);
-        std::process::exit(ret.exit_code);
+        std::process::exit(ret.exit_code.unwrap());
     }
 
     println!("{}", ret.stdout);

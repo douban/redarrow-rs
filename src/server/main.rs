@@ -22,22 +22,19 @@ async fn main() {
 
     let configs = dispatcher::read_config(config_file.as_str()).unwrap();
 
-    // GET /command/warp
     let command = path!("command" / String)
         .and(warp::query::<CommandOptions>())
         .map(
             move |name: String, opts: CommandOptions| match configs.get(name.as_str()) {
+                None => format!("{} is unreviewed.\n", name),
                 Some(cmd) => {
                     let arguments = match &opts.argument {
                         None => Vec::new(),
-                        Some(args) => {
-                            args.split(" ").collect()
-                        },
+                        Some(args) => args.split(" ").collect(),
                     };
                     let r = cmd.execute(arguments).unwrap();
                     format!("{}: {:?}\n{:?}\n{:?}\n", name, opts, cmd, r)
-                },
-                None => format!("{} is unreviewed.\n", name),
+                }
             },
         );
 

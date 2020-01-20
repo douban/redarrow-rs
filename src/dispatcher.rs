@@ -31,15 +31,18 @@ impl Command {
 
     pub fn get_command(self: &Self, arguments: Vec<&str>) -> Result<String> {
         if arguments.len() != self.args.len() {
-            return Err(anyhow!("Argument Mismatch!"));
+            return Err(anyhow!(
+                "Illegal Argument: Got {} args ({} expected)",
+                arguments.len(),
+                self.args.len()
+            ));
         }
         for (i, arg) in arguments.iter().enumerate() {
             if !&self.args[i].is_match(arg) {
                 return Err(anyhow!("Illegal Argument: {}!", arg));
             }
         }
-        let re = Regex::new(RE_ARGS)?;
-        let exec = re
+        let exec = Regex::new(RE_ARGS)?
             .replace_all(&self.exec, |caps: &Captures| match caps.get(1) {
                 None => "",
                 Some(c) => {
@@ -62,10 +65,10 @@ impl Command {
         Ok(CommandResult {
             stdout: String::from_utf8(out.stdout)?,
             stderr: String::from_utf8(out.stderr)?,
-            exit_code: out.status.code().unwrap_or(-1),
-            time_cost: duration.as_secs_f64(),
-            start_time: start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-            error: "".to_string(),
+            exit_code: Some(out.status.code().unwrap_or(-1)),
+            time_cost: Some(duration.as_secs_f64()),
+            start_time: Some(start.duration_since(UNIX_EPOCH)?.as_secs_f64()),
+            error: None,
         })
     }
 }
@@ -75,16 +78,10 @@ pub struct CommandResult {
     pub stdout: String,
     pub stderr: String,
 
-    #[serde(default)]
-    pub exit_code: i32,
-
-    #[serde(default)]
-    pub time_cost: f64,
-    #[serde(default)]
-    pub start_time: f64,
-
-    #[serde(default)]
-    pub error: String,
+    pub exit_code: Option<i32>,
+    pub time_cost: Option<f64>,
+    pub start_time: Option<f64>,
+    pub error: Option<String>,
 }
 
 pub fn read_config(config_file: &str) -> Result<HashMap<String, Command>> {
@@ -110,20 +107,14 @@ pub fn parse_config_file<P: AsRef<Path>>(
 
     for (sec, prop) in conf.iter() {
         let name = match sec {
-            None => "",
+            None => continue,
             Some(n) => n,
         };
-        if name == "" {
-            continue;
-        }
 
         let exec = match prop.get("exec") {
-            None => "",
+            None => continue,
             Some(e) => e,
         };
-        if exec == "" {
-            continue;
-        }
 
         let mut args: Vec<Regex> = Vec::new();
         let re = Regex::new(RE_ARGS)?;
