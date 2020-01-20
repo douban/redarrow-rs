@@ -1,52 +1,14 @@
-use std::fmt;
 use std::str;
 use std::sync::atomic::{AtomicI8, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
+use anyhow::Result;
 use curl::easy::Easy;
-use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
 
 use crate::dispatcher;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RedarrowError {
-    kind: String,
-    message: String,
-}
-
-impl fmt::Display for RedarrowError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} Error: {}", self.kind, self.message)
-    }
-}
-
-impl From<curl::Error> for RedarrowError {
-    fn from(error: curl::Error) -> Self {
-        RedarrowError {
-            kind: String::from("curl"),
-            message: error.to_string(),
-        }
-    }
-}
-impl From<std::string::FromUtf8Error> for RedarrowError {
-    fn from(error: std::string::FromUtf8Error) -> Self {
-        RedarrowError {
-            kind: String::from("FromUtf8"),
-            message: error.to_string(),
-        }
-    }
-}
-impl From<serde_json::error::Error> for RedarrowError {
-    fn from(error: serde_json::error::Error) -> Self {
-        RedarrowError {
-            kind: String::from("serde_json"),
-            message: error.to_string(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct It {
@@ -88,7 +50,7 @@ impl Client {
         )
     }
 
-    pub fn run_command(self: &Self) -> Result<dispatcher::CommandResult, RedarrowError> {
+    pub fn run_command(self: &Self) -> Result<dispatcher::CommandResult> {
         let mut dst = Vec::new();
         let mut easy = Easy::new();
         easy.connect_timeout(Duration::new(3, 0))?;
