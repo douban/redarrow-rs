@@ -3,7 +3,7 @@ extern crate clap;
 
 use std::f64::{INFINITY, NEG_INFINITY};
 
-use redarrow::webclient;
+use redarrow::{webclient, dispatcher};
 
 /*
 Threshold format: [@]start:end
@@ -86,7 +86,7 @@ fn main() {
 
     let quiet = matches.is_present("quiet");
 
-    let ret: webclient::CommandResult;
+    let ret: dispatcher::CommandResult;
 
     let client = webclient::Client::new(host, 4205, command, arguments);
     let result = client.run_command();

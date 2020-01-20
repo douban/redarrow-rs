@@ -9,6 +9,8 @@ use curl::easy::Easy;
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
 
+use crate::dispatcher;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RedarrowError {
     kind: String,
@@ -53,23 +55,6 @@ pub struct It {
     pub line: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CommandResult {
-    pub stdout: String,
-    pub stderr: String,
-
-    #[serde(default)]
-    pub exit_code: i32,
-
-    #[serde(default)]
-    pub time_cost: f64,
-    #[serde(default)]
-    pub start_time: f64,
-
-    #[serde(default)]
-    pub error: String,
-}
-
 #[derive(Debug)]
 pub struct Client {
     pub host: String,
@@ -103,7 +88,7 @@ impl Client {
         )
     }
 
-    pub fn run_command(self: &Self) -> Result<CommandResult, RedarrowError> {
+    pub fn run_command(self: &Self) -> Result<dispatcher::CommandResult, RedarrowError> {
         let mut dst = Vec::new();
         let mut easy = Easy::new();
         easy.connect_timeout(Duration::new(3, 0))?;
@@ -117,7 +102,7 @@ impl Client {
             transfer.perform()?;
         }
         let body = String::from_utf8(dst)?;
-        let ret: CommandResult = serde_json::from_str(body.as_str())?;
+        let ret: dispatcher::CommandResult = serde_json::from_str(body.as_str())?;
         Ok(ret)
     }
 
