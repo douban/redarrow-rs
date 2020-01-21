@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 
 static RE_ARGS: &str = r"\$\{(\d+)\}";
 
+pub type Configs = HashMap<String, Command>;
+
 #[derive(Clone, Debug)]
 pub struct Command {
     name: String,
@@ -20,7 +22,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn new(name: &str, exec: &str, args: Vec<Regex>, time_limit: u64) -> Command {
+    fn new(name: &str, exec: &str, args: Vec<Regex>, time_limit: u64) -> Command {
         Command {
             name: name.to_string(),
             exec: exec.to_string(),
@@ -29,7 +31,7 @@ impl Command {
         }
     }
 
-    pub fn get_command(self: &Self, arguments: Vec<&str>) -> Result<String> {
+    fn get_command(self: &Self, arguments: Vec<&str>) -> Result<String> {
         if arguments.len() != self.args.len() {
             return Err(anyhow!(
                 "Illegal Argument: Got {} args ({} expected)",
@@ -39,7 +41,7 @@ impl Command {
         }
         for (i, arg) in arguments.iter().enumerate() {
             if !&self.args[i].is_match(arg) {
-                return Err(anyhow!("Illegal Argument: {}!", arg));
+                return Err(anyhow!("Illegal Argument: {}", arg));
             }
         }
         let exec = Regex::new(RE_ARGS)?
@@ -62,31 +64,66 @@ impl Command {
         let out = process::Command::new(args[0]).args(&args[1..]).output()?;
         let duration = start.elapsed()?;
 
-        Ok(CommandResult {
-            stdout: String::from_utf8(out.stdout)?,
-            stderr: String::from_utf8(out.stderr)?,
-            exit_code: Some(out.status.code().unwrap_or(-1)),
-            time_cost: Some(duration.as_secs_f64()),
-            start_time: Some(start.duration_since(UNIX_EPOCH)?.as_secs_f64()),
-            error: None,
-        })
+        Ok(CommandResult::ok(
+            String::from_utf8(out.stdout)?,
+            String::from_utf8(out.stderr)?,
+            out.status.code().unwrap_or(-1),
+            duration.as_secs_f64(),
+            start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+        ))
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CommandResult {
-    pub stdout: String,
-    pub stderr: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub time_cost: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
-pub fn read_config(config_file: &str) -> Result<HashMap<String, Command>> {
+impl CommandResult {
+    pub fn ok(
+        stdout: String,
+        stderr: String,
+        exit_code: i32,
+        time_cost: f64,
+        start_time: f64,
+    ) -> CommandResult {
+        CommandResult {
+            stdout: Some(stdout),
+            stderr: Some(stderr),
+            exit_code: Some(exit_code),
+            time_cost: Some(time_cost),
+            start_time: Some(start_time),
+            error: None,
+        }
+    }
+
+    pub fn err(err: String) -> CommandResult {
+        CommandResult {
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            time_cost: None,
+            start_time: None,
+            error: Some(err),
+        }
+    }
+}
+
+pub fn read_config(config_file: &str) -> Result<Configs> {
     let p = Path::new(config_file);
-    let mut cmds: HashMap<String, Command> = HashMap::new();
+    let mut cmds: Configs = HashMap::new();
 
     if p.is_dir() {
         let dir = p.join("*").to_str().unwrap().to_string();
@@ -99,10 +136,7 @@ pub fn read_config(config_file: &str) -> Result<HashMap<String, Command>> {
     Ok(cmds)
 }
 
-pub fn parse_config_file<P: AsRef<Path>>(
-    config_file: P,
-    cmds: &mut HashMap<String, Command>,
-) -> Result<()> {
+fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Result<()> {
     let conf = Ini::load_from_file_noescape(config_file)?;
 
     for (sec, prop) in conf.iter() {

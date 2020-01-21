@@ -115,12 +115,16 @@ fn main() {
         }
     }
 
+    let stdout = ret.stdout.unwrap();
+    let stderr = ret.stderr.unwrap();
+
     if matches.is_present("raw") {
         let output: String;
-        if ret.stdout != "" {
-            output = ret.stdout;
-        } else if ret.stderr != "" {
-            output = ret.stderr;
+
+        if stdout != "" {
+            output = stdout;
+        } else if stderr != "" {
+            output = stderr;
         } else if ret.exit_code.unwrap() != 0 {
             output = format!("Error: exit code is {}", ret.exit_code.unwrap());
         } else {
@@ -130,8 +134,8 @@ fn main() {
         std::process::exit(ret.exit_code.unwrap());
     }
 
-    println!("{}", ret.stdout);
-    let value: f64 = ret.stdout.trim().parse().unwrap();
+    println!("{}", stdout);
+    let value: f64 = stdout.trim().parse().unwrap();
 
     if matches.is_present("critical") {
         let threshold = Threshold::parse(matches.value_of("critical").unwrap());
