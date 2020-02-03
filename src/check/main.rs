@@ -1,7 +1,6 @@
-#[macro_use]
-extern crate clap;
-
 use std::f64::{INFINITY, NEG_INFINITY};
+
+use argh::FromArgs;
 
 use redarrow::{dispatcher, webclient};
 
@@ -72,23 +71,50 @@ impl Threshold {
     }
 }
 
+#[argh(description = "execute remote nagios check from a redarrow server")]
+#[derive(FromArgs, Debug)]
+struct CheckArgs {
+    #[argh(positional)]
+    host: String,
+
+    #[argh(positional)]
+    command: String,
+
+    #[argh(option, short = 'a', description = "redarrow command arguments")]
+    arguments: Option<String>,
+
+    #[argh(option, short = 'w', description = "warning threshold")]
+    warning: Option<String>,
+
+    #[argh(option, short = 'c', description = "critical threshold")]
+    critical: Option<String>,
+
+    #[argh(
+        switch,
+        short = 'r',
+        description = "use remote output and return code directly"
+    )]
+    raw: bool,
+
+    #[argh(
+        switch,
+        short = 'q',
+        description = "catch all redarrow run_command exceptions and not alert"
+    )]
+    quiet: bool,
+}
+
 fn main() {
-    let yaml = load_yaml!("cli.yml");
-    let matches = clap::App::from(yaml).get_matches();
+    let args: CheckArgs = argh::from_env();
 
-    let host = matches.value_of("host").unwrap();
-    let command = matches.value_of("command").unwrap();
-
-    let mut arguments: Vec<&str> = Vec::new();
-    if matches.is_present("arguments") {
-        arguments = matches.value_of("arguments").unwrap().split(" ").collect();
-    }
-
-    let quiet = matches.is_present("quiet");
+    let arguments: Vec<String> = match args.arguments {
+        None => Vec::new(),
+        Some(a) => a.split(" ").map(|x| x.to_string()).collect(),
+    };
 
     let ret: dispatcher::CommandResult;
 
-    let client = webclient::Client::new(host, 4205, command, arguments);
+    let client = webclient::Client::new(args.host, 4205, args.command, arguments);
     let result = client.run_command();
     match result {
         Ok(v) => {
@@ -96,7 +122,7 @@ fn main() {
             match ret.error {
                 None => {}
                 Some(err) => {
-                    if quiet {
+                    if args.quiet {
                         std::process::exit(0);
                     } else {
                         eprintln!("remote internal error: {}", err);
@@ -106,7 +132,7 @@ fn main() {
             }
         }
         Err(e) => {
-            if quiet {
+            if args.quiet {
                 std::process::exit(0);
             } else {
                 eprintln!("local internal error: {}", e);
@@ -118,7 +144,7 @@ fn main() {
     let stdout = ret.stdout.unwrap();
     let stderr = ret.stderr.unwrap();
 
-    if matches.is_present("raw") {
+    if args.raw {
         let output: String;
 
         if stdout != "" {
@@ -137,17 +163,24 @@ fn main() {
     println!("{}", stdout);
     let value: f64 = stdout.trim().parse().unwrap();
 
-    if matches.is_present("critical") {
-        let threshold = Threshold::parse(matches.value_of("critical").unwrap());
-        if threshold.should_alert(value) {
-            std::process::exit(2);
+    match args.critical {
+        None => {}
+        Some(critical) => {
+            let threshold = Threshold::parse(critical.as_str());
+            if threshold.should_alert(value) {
+                std::process::exit(2);
+            }
         }
     }
-    if matches.is_present("warning") {
-        let threshold = Threshold::parse(matches.value_of("warning").unwrap());
-        if threshold.should_alert(value) {
-            std::process::exit(1);
+    match args.warning {
+        None => {}
+        Some(warning) => {
+            let threshold = Threshold::parse(warning.as_str());
+            if threshold.should_alert(value) {
+                std::process::exit(2);
+            }
         }
     }
+
     std::process::exit(0);
 }

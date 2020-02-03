@@ -1,46 +1,47 @@
-#[macro_use]
-extern crate clap;
-
 use std::collections::BTreeMap;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
+use argh::FromArgs;
+
 use redarrow::webclient;
 
+#[argh(description = "execute remote command from a redarrow server")]
+#[derive(FromArgs, Debug)]
+struct ClientArgs {
+    #[argh(positional)]
+    command: String,
+
+    #[argh(positional)]
+    arguments: Vec<String>,
+
+    #[argh(switch, description = "output the detail information of running")]
+    detail: bool,
+
+    #[argh(switch, description = "list available commands")]
+    list: bool,
+
+    #[argh(
+        option,
+        default = "\"localhost\".to_string()",
+        description = "comma-seperated redarrow service hosts"
+    )]
+    host: String,
+
+    #[argh(option, default = "4205", description = "redarrow service port")]
+    port: u32,
+}
+
 fn main() {
-    let yaml = load_yaml!("cli.yml");
-    let matches = clap::App::from(yaml).get_matches();
-
-    let host = matches.value_of("host").unwrap();
-    let port = value_t!(matches, "port", u32).unwrap_or(4205);
-    let detail = matches.is_present("detail");
-
-    let mut command: &str = "";
-    let mut arguments: Vec<&str> = Vec::new();
-
-    if matches.is_present("list") {
-        command = "*LIST*";
-    } else {
-        if let Some(args) = matches.values_of("args") {
-            for (index, value) in args.enumerate() {
-                if index == 0 {
-                    command = value;
-                } else {
-                    arguments.push(value);
-                }
-            }
-        } else {
-            std::process::exit({
-                eprintln!("Error: command missing");
-                2
-            });
-        }
+    let mut args: ClientArgs = argh::from_env();
+    if args.list {
+        args.command = "*LIST*".to_string();
     }
 
     let exit_code: i32;
 
-    let client = webclient::Client::new(host, port, command, arguments);
+    let client = webclient::Client::new(args.host, args.port, args.command, args.arguments);
     let (tx, rx): (Sender<webclient::It>, Receiver<webclient::It>) = mpsc::channel();
     if client.host.contains(",") {
         let child = thread::spawn(move || client.run_parallel(tx));
@@ -53,7 +54,7 @@ fn main() {
         child.join().unwrap();
     } else {
         let child = thread::spawn(move || client.run_realtime(tx));
-        exit_code = print_result(rx, detail);
+        exit_code = print_result(rx, args.detail);
         child.join().unwrap();
     }
 

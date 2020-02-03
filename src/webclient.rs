@@ -26,12 +26,12 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(host: &str, port: u32, command: &str, arguments: Vec<&str>) -> Client {
+    pub fn new(host: String, port: u32, command: String, arguments: Vec<String>) -> Client {
         Client {
-            host: host.to_string(),
+            host: host,
             port: port,
-            command: command.to_string(),
-            arguments: arguments.iter().map(|x| x.to_string()).collect(),
+            command: command,
+            arguments: arguments,
         }
     }
 
@@ -114,10 +114,10 @@ impl Client {
         let mut children = Vec::new();
         for host in hosts {
             let client = Client::new(
-                host,
+                host.to_string(),
                 self.port,
-                self.command.as_str(),
-                self.arguments.iter().map(|x| x.as_str()).collect(),
+                self.command.clone(),
+                self.arguments.clone(),
             );
             let tx = tx.clone();
             let child = thread::spawn(move || client.run_realtime(tx));

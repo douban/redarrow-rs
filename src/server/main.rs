@@ -1,8 +1,8 @@
 use std::convert::Infallible;
 
 use anyhow::Result;
-use clap::{load_yaml, value_t};
-use serde::{Deserialize};
+use argh::FromArgs;
+use serde::Deserialize;
 use warp::http::StatusCode;
 use warp::{self, path, Filter};
 
@@ -15,16 +15,38 @@ pub struct CommandOptions {
     chunked: Option<u8>,
 }
 
+#[argh(description = "execute command for remote redarrow client")]
+#[derive(FromArgs, Debug)]
+struct ServerArgs {
+    #[argh(
+        switch,
+        short = 'd',
+        description = "return text/html instead of application/json"
+    )]
+    debug: bool,
+
+    #[argh(
+        option,
+        short = 'c',
+        default = "\"/etc/redarrow.conf\".to_string()",
+        description = "path to config file"
+    )]
+    config: String,
+
+    #[argh(
+        option,
+        short = 'p',
+        default = "4205",
+        description = "redarrow service port"
+    )]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() {
-    let yaml = load_yaml!("cli.yml");
-    let matches = clap::App::from(yaml).get_matches();
+    let args: ServerArgs = argh::from_env();
 
-    let config_file = matches.value_of("config").unwrap().to_string();
-    let port = value_t!(matches, "port", u16).unwrap_or(4205);
-    // let debug = matches.is_present("debug");
-
-    let configs = dispatcher::read_config(config_file.as_str()).unwrap();
+    let configs = dispatcher::read_config(args.config.as_str()).unwrap();
 
     let command = path!("command" / String)
         .and(warp::get())
@@ -32,7 +54,7 @@ async fn main() {
         .and(with_configs(configs))
         .and_then(handlers_command);
 
-    warp::serve(command).run(([0, 0, 0, 0], port)).await;
+    warp::serve(command).run(([0, 0, 0, 0], args.port)).await;
 }
 
 pub async fn handlers_command(
