@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process;
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -72,6 +74,60 @@ impl Command {
             start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
         ))
     }
+
+    pub fn execute_iter(
+        self: &Self,
+        arguments: Vec<&str>,
+        tx: std::sync::mpsc::Sender<String>,
+    ) -> Result<()> {
+        let cmd = self.get_command(arguments)?;
+        let args: Vec<&str> = cmd.split(" ").collect();
+
+        let start = SystemTime::now();
+
+        let mut child = process::Command::new(args[0])
+            .args(&args[1..])
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped())
+            .spawn()?;
+
+        let stdout_reader = BufReader::new(child.stdout.take().ok_or(anyhow!("stdout error"))?);
+        let out_tx = tx.clone();
+        let stdout_child = thread::spawn(move || {
+            stdout_reader
+                .lines()
+                .filter_map(|line| line.ok())
+                .for_each(|line| {
+                    out_tx.send(format!("1> {}\n", line)).unwrap();
+                });
+        });
+        let stderr_reader = BufReader::new(child.stderr.take().ok_or(anyhow!("stderr error"))?);
+        let err_tx = tx.clone();
+        let stderr_child = thread::spawn(move || {
+            stderr_reader
+                .lines()
+                .filter_map(|line| line.ok())
+                .for_each(|line| {
+                    err_tx.send(format!("2> {}\n", line)).unwrap();
+                });
+        });
+
+        stdout_child.join().unwrap();
+        stderr_child.join().unwrap();
+        let ret = child.wait()?;
+
+        let duration = start.elapsed()?;
+        let r = CommandResult::chunked_ok(
+            ret.code().unwrap_or(-1),
+            duration.as_secs_f64(),
+            start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+        );
+        tx.clone()
+            .send(format!("0> {}\n", serde_json::to_string(&r)?))
+            .unwrap();
+
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -102,6 +158,17 @@ impl CommandResult {
         CommandResult {
             stdout: Some(stdout),
             stderr: Some(stderr),
+            exit_code: Some(exit_code),
+            time_cost: Some(time_cost),
+            start_time: Some(start_time),
+            error: None,
+        }
+    }
+
+    pub fn chunked_ok(exit_code: i32, time_cost: f64, start_time: f64) -> CommandResult {
+        CommandResult {
+            stdout: None,
+            stderr: None,
             exit_code: Some(exit_code),
             time_cost: Some(time_cost),
             start_time: Some(start_time),
