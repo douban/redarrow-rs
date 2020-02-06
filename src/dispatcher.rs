@@ -3,13 +3,14 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process;
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use glob::glob;
 use ini::Ini;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
+use wait_timeout::ChildExt;
 
 static RE_ARGS: &str = r"\$\{(\d+)\}";
 
@@ -111,17 +112,41 @@ impl Command {
                     err_tx.send(format!("2> {}\n", line)).unwrap();
                 });
         });
+        let timeout = Duration::from_secs(self.time_limit);
+        let status = child.wait_timeout(timeout).unwrap();
 
-        stdout_child.join().unwrap();
-        stderr_child.join().unwrap();
-        let ret = child.wait()?;
+        let r = match status {
+            None => {
+                // FIXME:(everpcpc) stdout_child and stderr_child should be force terminated
+                process::Command::new("kill")
+                    .arg(format!("{}", child.id()))
+                    .output()
+                    .unwrap();
+                let one_sec = Duration::from_secs(1);
+                match child.wait_timeout(one_sec).unwrap() {
+                    Some(s) => CommandResult::err(format!("Time Limit Exceeded: {}", s)),
+                    None => {
+                        process::Command::new("kill")
+                            .arg("-9")
+                            .arg(format!("{}", child.id()))
+                            .output()
+                            .unwrap();
+                        CommandResult::err("Time Limit Exceeded: killed -9".to_string())
+                    }
+                }
+            }
+            Some(s) => {
+                stdout_child.join().unwrap();
+                stderr_child.join().unwrap();
+                let duration = start.elapsed()?;
+                CommandResult::chunked_ok(
+                    s.code().unwrap_or(-1),
+                    duration.as_secs_f64(),
+                    start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+                )
+            }
+        };
 
-        let duration = start.elapsed()?;
-        let r = CommandResult::chunked_ok(
-            ret.code().unwrap_or(-1),
-            duration.as_secs_f64(),
-            start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-        );
         tx.clone()
             .send(format!("0> {}\n", serde_json::to_string(&r)?))
             .unwrap();
