@@ -1,4 +1,4 @@
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
 use argh::FromArgs;
 use bytes::Bytes;
 use serde::Deserialize;
@@ -46,10 +46,16 @@ async fn main() -> std::io::Result<()> {
     let configs = dispatcher::read_config(args.config.as_str()).unwrap();
     println!("parsed {} commands, starting server...", configs.len());
 
-    HttpServer::new(move || App::new().data(configs.clone()).service(handlers_command))
-        .bind(format!("0.0.0.0:{}", args.port))?
-        .run()
-        .await
+    env_logger::init();
+    HttpServer::new(move || {
+        App::new()
+            .wrap(middleware::Logger::default())
+            .data(configs.clone())
+            .service(handlers_command)
+    })
+    .bind(format!("0.0.0.0:{}", args.port))?
+    .run()
+    .await
 }
 
 #[get("command/{command}")]

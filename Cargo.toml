@@ -1,6 +1,6 @@
 [package]
 name = "redarrow"
-version = "0.10.1"
+version = "0.10.2"
 authors = ["everpcpc <git@everpcpc.com>"]
 edition = "2018"
 license = "MIT"
@@ -32,6 +32,7 @@ glob = "0.3.0"
 rust-ini = "0.13"
 regex = "1"
 bytes = "0.5"
+env_logger = "0.7"
 actix-web = "2"
 actix-utils = "1"
 actix-rt = "1"
