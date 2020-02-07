@@ -80,7 +80,7 @@ impl Command {
         self: &Self,
         arguments: Vec<&str>,
         tx: std::sync::mpsc::Sender<String>,
-    ) -> Result<()> {
+    ) -> Result<CommandResult> {
         let cmd = self.get_command(arguments)?;
         let args: Vec<&str> = cmd.split(" ").collect();
 
@@ -147,11 +147,7 @@ impl Command {
             }
         };
 
-        tx.clone()
-            .send(format!("0> {}\n", serde_json::to_string(&r)?))
-            .unwrap();
-
-        Ok(())
+        Ok(r)
     }
 }
 

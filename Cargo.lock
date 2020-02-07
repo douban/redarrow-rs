@@ -1120,7 +1120,7 @@ dependencies = [
 
 [[package]]
 name = "redarrow"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "actix-rt 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-utils 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",

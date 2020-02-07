@@ -68,95 +68,119 @@ async fn handlers_command(
         None => false,
         Some(c) => c != 0,
     };
-    // NOTE: use Vec<String> to avoid lifetime issue
-    let arguments: Vec<String> = match &opts.argument {
+    let arguments = match &opts.argument {
         None => Vec::new(),
-        Some(a) => a.split(" ").map(|x| x.to_string()).collect(),
+        Some(a) => a.split(" ").collect(),
     };
 
-    if !chunked {
-        if command.as_str() == "*LIST*" {
-            let r = dispatcher::CommandResult::ok(
-                format!(
-                    "Available commands:\n{}\n",
-                    configs
-                        .keys()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<String>>()
-                        .join("\n")
-                ),
-                "".to_string(),
-                0,
-                0.0,
-                0.0,
-            );
-            return HttpResponse::Ok().json(r);
-        }
-        match configs.get(command.as_str()) {
-            None => {
-                let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
-                HttpResponse::BadRequest().json(err)
-            }
-            Some(cmd) => {
-                let r = cmd
-                    .execute(arguments.iter().map(|x| x.as_str()).collect())
-                    .unwrap_or_else(|err| dispatcher::CommandResult::err(format!("{}", err)));
-                HttpResponse::Ok().json(r)
-            }
-        }
+    if chunked {
+        handle_command_chunked(command.as_str(), arguments, configs)
     } else {
-        if command.as_str() == "*LIST*" {
+        handle_command_no_chunked(command.as_str(), arguments, configs)
+    }
+}
+
+fn handle_command_chunked(
+    command: &str,
+    arguments: Vec<&str>,
+    configs: web::Data<dispatcher::Configs>,
+) -> HttpResponse {
+    if command == "*LIST*" {
+        let (tx_body, rx_body) =
+            actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
+        actix_rt::spawn(async move {
+            tx_body
+                .send(Ok(Bytes::from("1> Available commands:\n")))
+                .unwrap();
+            for key in configs.keys() {
+                tx_body
+                    .send(Ok(Bytes::from(format!("1> {}\n", key))))
+                    .unwrap();
+            }
+            let r = dispatcher::CommandResult::chunked_ok(0, 0.0, 0.0);
+            tx_body
+                .send(Ok(Bytes::from(format!(
+                    "0> {}\n",
+                    serde_json::to_string(&r).unwrap()
+                ))))
+                .unwrap();
+        });
+        return HttpResponse::Ok().streaming(rx_body);
+    }
+
+    match configs.get(command) {
+        None => {
+            let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
+            HttpResponse::BadRequest()
+                .body(format!("0> {}\n", serde_json::to_string(&err).unwrap()))
+        }
+        Some(cmd) => {
             let (tx_body, rx_body) =
                 actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
+            let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
             actix_rt::spawn(async move {
-                tx_body
-                    .send(Ok(Bytes::from("1> Available commands:\n")))
-                    .unwrap();
-                for key in configs.keys() {
-                    tx_body
-                        .send(Ok(Bytes::from(format!("1> {}\n", key))))
-                        .unwrap();
-                }
-                let r = dispatcher::CommandResult::chunked_ok(0, 0.0, 0.0);
-                tx_body
-                    .send(Ok(Bytes::from(format!(
-                        "0> {}\n",
-                        serde_json::to_string(&r).unwrap()
-                    ))))
-                    .unwrap();
-            });
-            return HttpResponse::Ok().streaming(rx_body);
-        }
-
-        match configs.get(command.as_str()) {
-            None => {
-                let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
-                HttpResponse::BadRequest()
-                    .body(format!("0> {}\n", serde_json::to_string(&err).unwrap()))
-            }
-            Some(cmd) => {
-                let (tx_body, rx_body) =
-                    actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
-                let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
-                actix_rt::spawn(async move {
-                    loop {
-                        match rx_cmd.recv() {
-                            Err(_) => break,
-                            Ok(result) => {
-                                tx_body.send(Ok(Bytes::from(result))).unwrap();
-                                // HACK: wait 1ns to send
-                                futures_timer::Delay::new(std::time::Duration::from_nanos(1)).await;
-                            }
+                loop {
+                    match rx_cmd.recv() {
+                        Err(_) => break,
+                        Ok(result) => {
+                            tx_body.send(Ok(Bytes::from(result))).unwrap();
+                            // HACK:(everpcpc) wait 1ns to send
+                            futures_timer::Delay::new(std::time::Duration::from_nanos(1)).await;
                         }
                     }
-                });
-                let cmd = cmd.clone();
-                std::thread::spawn(move || {
-                    cmd.execute_iter(arguments.iter().map(|x| x.as_str()).collect(), tx_cmd)
-                        .unwrap()
-                });
-                HttpResponse::Ok().streaming(rx_body)
-            }
+                }
+            });
+            let cmd = cmd.clone();
+            // NOTE:(everpcpc) use Vec<String> to avoid lifetime issue
+            let arguments: Vec<String> = arguments.iter().map(|x| x.to_string()).collect();
+            std::thread::spawn(move || {
+                let r = cmd
+                    .execute_iter(
+                        arguments.iter().map(|x| x.as_str()).collect(),
+                        tx_cmd.clone(),
+                    )
+                    .unwrap_or_else(|err| dispatcher::CommandResult::err(format!("{}", err)));
+                tx_cmd
+                    .send(format!("0> {}\n", serde_json::to_string(&r).unwrap()))
+                    .unwrap();
+            });
+            HttpResponse::Ok().streaming(rx_body)
+        }
+    }
+}
+
+fn handle_command_no_chunked(
+    command: &str,
+    arguments: Vec<&str>,
+    configs: web::Data<dispatcher::Configs>,
+) -> HttpResponse {
+    if command == "*LIST*" {
+        let r = dispatcher::CommandResult::ok(
+            format!(
+                "Available commands:\n{}\n",
+                configs
+                    .keys()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            ),
+            "".to_string(),
+            0,
+            0.0,
+            0.0,
+        );
+        return HttpResponse::Ok().json(r);
+    }
+    match configs.get(command) {
+        None => {
+            let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
+            HttpResponse::BadRequest().json(err)
+        }
+        Some(cmd) => {
+            let r = cmd
+                .execute(arguments)
+                .unwrap_or_else(|err| dispatcher::CommandResult::err(format!("{}", err)));
+            HttpResponse::Ok().json(r)
         }
     }
 }
