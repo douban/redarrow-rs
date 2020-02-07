@@ -75,8 +75,9 @@ async fn main() -> std::io::Result<()> {
     actix_rt::spawn(async move {
         loop {
             stream_hup.recv().await;
+            // TODO:(everpcpc) impl reload
             println!("\n*** SIGHUP received. Reloading. ***\n");
-            hup_tx.send("HUP").unwrap();
+            hup_tx.send("TERM").unwrap();
         }
     });
     let mut stream_term = signal(SignalKind::terminate())?;
