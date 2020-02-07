@@ -1,20 +1,15 @@
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
 use argh::FromArgs;
 use bytes::Bytes;
+use futures::executor;
 use serde::Deserialize;
+use tokio::signal::unix::{signal, SignalKind};
 
 use redarrow::dispatcher;
 
 #[argh(description = "execute command for remote redarrow client")]
 #[derive(FromArgs, Debug)]
 struct ServerArgs {
-    #[argh(
-        switch,
-        short = 'd',
-        description = "return text/html instead of application/json"
-    )]
-    debug: bool,
-
     #[argh(
         option,
         short = 'c',
@@ -41,21 +36,60 @@ pub struct CommandOptions {
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
     let args: ServerArgs = argh::from_env();
 
     let configs = dispatcher::read_config(args.config.as_str()).unwrap();
-    println!("parsed {} commands, starting server...", configs.len());
+    println!("parsed {} commands, starting server...", &configs.len());
 
-    env_logger::init();
-    HttpServer::new(move || {
+    let (tx, rx) = std::sync::mpsc::channel::<&str>();
+
+    let server = HttpServer::new(move || {
         App::new()
-            .wrap(middleware::Logger::default())
             .data(configs.clone())
+            .wrap(middleware::Logger::default())
             .service(handlers_command)
     })
     .bind(format!("0.0.0.0:{}", args.port))?
-    .run()
-    .await
+    .run();
+
+    let srv = server.clone();
+    std::thread::spawn(move || loop {
+        let sig = rx.recv().unwrap_or("");
+        match sig {
+            "TERM" => {
+                // stop server gracefully
+                executor::block_on(srv.stop(true));
+                break;
+            }
+            "HUP" => {}
+            _ => {
+                // wait 10ms if recv error
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    });
+
+    let mut stream_hup = signal(SignalKind::hangup())?;
+    let hup_tx = tx.clone();
+    actix_rt::spawn(async move {
+        loop {
+            stream_hup.recv().await;
+            println!("\n*** SIGHUP received. Reloading. ***\n");
+            hup_tx.send("HUP").unwrap();
+        }
+    });
+    let mut stream_term = signal(SignalKind::terminate())?;
+    let term_tx = tx.clone();
+    actix_rt::spawn(async move {
+        loop {
+            stream_term.recv().await;
+            println!("\n*** SIGTERM received. Terminating. ***\n");
+            term_tx.send("TERM").unwrap();
+        }
+    });
+
+    server.await
 }
 
 #[get("command/{command}")]
