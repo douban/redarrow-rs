@@ -19,9 +19,6 @@ struct ClientArgs {
     #[argh(switch, description = "output the detail information of running")]
     detail: bool,
 
-    #[argh(switch, description = "list available commands")]
-    list: bool,
-
     #[argh(
         option,
         default = "\"localhost\".to_string()",
@@ -34,10 +31,7 @@ struct ClientArgs {
 }
 
 fn main() {
-    let mut args: ClientArgs = argh::from_env();
-    if args.list {
-        args.command = "*LIST*".to_string();
-    }
+    let args: ClientArgs = argh::from_env();
 
     let exit_code: i32;
 

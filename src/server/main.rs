@@ -120,29 +120,6 @@ fn handle_command_chunked(
     arguments: Vec<&str>,
     configs: web::Data<dispatcher::Configs>,
 ) -> HttpResponse {
-    if command == "*LIST*" {
-        let (tx_body, rx_body) =
-            actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
-        actix_rt::spawn(async move {
-            tx_body
-                .send(Ok(Bytes::from("1> Available commands:\n")))
-                .unwrap();
-            for key in configs.keys() {
-                tx_body
-                    .send(Ok(Bytes::from(format!("1> {}\n", key))))
-                    .unwrap();
-            }
-            let r = dispatcher::CommandResult::chunked_ok(0, 0.0, 0.0);
-            tx_body
-                .send(Ok(Bytes::from(format!(
-                    "0> {}\n",
-                    serde_json::to_string(&r).unwrap()
-                ))))
-                .unwrap();
-        });
-        return HttpResponse::Ok().streaming(rx_body);
-    }
-
     match configs.get(command) {
         None => {
             let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
@@ -189,23 +166,6 @@ fn handle_command_no_chunked(
     arguments: Vec<&str>,
     configs: web::Data<dispatcher::Configs>,
 ) -> HttpResponse {
-    if command == "*LIST*" {
-        let r = dispatcher::CommandResult::ok(
-            format!(
-                "Available commands:\n{}\n",
-                configs
-                    .keys()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<String>>()
-                    .join("\n")
-            ),
-            "".to_string(),
-            0,
-            0.0,
-            0.0,
-        );
-        return HttpResponse::Ok().json(r);
-    }
     match configs.get(command) {
         None => {
             let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
@@ -219,3 +179,45 @@ fn handle_command_no_chunked(
         }
     }
 }
+
+// // DEPRECATE:
+// fn handle_list_no_chunked(configs: web::Data<dispatcher::Configs>) -> HttpResponse {
+//     let r = dispatcher::CommandResult::ok(
+//         format!(
+//             "Available commands:\n{}\n",
+//             configs
+//                 .keys()
+//                 .map(|x| x.to_string())
+//                 .collect::<Vec<String>>()
+//                 .join("\n")
+//         ),
+//         "".to_string(),
+//         0,
+//         0.0,
+//         0.0,
+//     );
+//     return HttpResponse::Ok().json(r);
+// }
+
+// // DEPRECATE:
+// fn handle_list_chunked(configs: web::Data<dispatcher::Configs>) -> HttpResponse {
+//     let (tx_body, rx_body) = actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
+//     actix_rt::spawn(async move {
+//         tx_body
+//             .send(Ok(Bytes::from("1> Available commands:\n")))
+//             .unwrap();
+//         for key in configs.keys() {
+//             tx_body
+//                 .send(Ok(Bytes::from(format!("1> {}\n", key))))
+//                 .unwrap();
+//         }
+//         let r = dispatcher::CommandResult::chunked_ok(0, 0.0, 0.0);
+//         tx_body
+//             .send(Ok(Bytes::from(format!(
+//                 "0> {}\n",
+//                 serde_json::to_string(&r).unwrap()
+//             ))))
+//             .unwrap();
+//     });
+//     return HttpResponse::Ok().streaming(rx_body);
+// }
