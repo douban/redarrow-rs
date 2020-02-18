@@ -2,7 +2,7 @@
 
 Execute commands on remote servers.
 
-[![crates.io](https://img.shields.io/crates/d/redarrow.svg)](https://crates.io/crates/redarrow)
+[![crates.io](https://img.shields.io/crates/v/redarrow.svg)](https://crates.io/crates/redarrow)
 ![License](https://img.shields.io/crates/l/redarrow.svg)
 
 ## client example
