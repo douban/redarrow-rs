@@ -135,6 +135,9 @@ fn handle_command_chunked(
                     match rx_cmd.recv() {
                         Err(_) => break,
                         Ok(result) => {
+                            if result == "\0" {
+                                break;
+                            }
                             tx_body.send(Ok(Bytes::from(result))).unwrap();
                             // HACK:(everpcpc) wait 1ns to send
                             futures_timer::Delay::new(std::time::Duration::from_nanos(1)).await;
@@ -155,6 +158,8 @@ fn handle_command_chunked(
                 tx_cmd
                     .send(format!("0> {}\n", serde_json::to_string(&r).unwrap()))
                     .unwrap();
+                // HACK:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
+                tx_cmd.send("\0".to_string()).unwrap();
             });
             HttpResponse::Ok().streaming(rx_body)
         }

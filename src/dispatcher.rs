@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process;
 use std::thread;
@@ -8,6 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Result};
 use glob::glob;
 use ini::Ini;
+use nix::sys::signal;
+use nix::unistd::Pid;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
@@ -64,16 +66,44 @@ impl Command {
         let args: Vec<&str> = cmd.split(" ").collect();
 
         let start = SystemTime::now();
-        let out = process::Command::new(args[0]).args(&args[1..]).output()?;
-        let duration = start.elapsed()?;
+        let mut child = process::Command::new(args[0])
+            .args(&args[1..])
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped())
+            .spawn()?;
 
-        Ok(CommandResult::ok(
-            String::from_utf8(out.stdout)?,
-            String::from_utf8(out.stderr)?,
-            out.status.code().unwrap_or(-1),
-            duration.as_secs_f64(),
-            start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-        ))
+        let timeout = Duration::from_secs(self.time_limit);
+        let status = child.wait_timeout(timeout)?;
+
+        match status {
+            None => kill_child(&mut child),
+            Some(s) => {
+                let stdout = match child.stdout.as_mut() {
+                    Some(out) => {
+                        let mut ss = String::new();
+                        out.read_to_string(&mut ss)?;
+                        ss
+                    }
+                    None => "".to_string(),
+                };
+                let stderr = match child.stderr.as_mut() {
+                    Some(err) => {
+                        let mut ss = String::new();
+                        err.read_to_string(&mut ss)?;
+                        ss
+                    }
+                    None => "".to_string(),
+                };
+
+                Ok(CommandResult::ok(
+                    stdout,
+                    stderr,
+                    s.code().unwrap_or(-1),
+                    start.elapsed()?.as_secs_f64(),
+                    start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+                ))
+            }
+        }
     }
 
     pub fn execute_iter(
@@ -113,41 +143,21 @@ impl Command {
                 });
         });
         let timeout = Duration::from_secs(self.time_limit);
-        let status = child.wait_timeout(timeout).unwrap();
+        let status = child.wait_timeout(timeout)?;
 
-        let r = match status {
-            None => {
-                // FIXME:(everpcpc) stdout_child and stderr_child should be force terminated
-                process::Command::new("kill")
-                    .arg(format!("{}", child.id()))
-                    .output()
-                    .unwrap();
-                let one_sec = Duration::from_secs(1);
-                match child.wait_timeout(one_sec).unwrap() {
-                    Some(s) => CommandResult::err(format!("Time Limit Exceeded: {}", s)),
-                    None => {
-                        process::Command::new("kill")
-                            .arg("-9")
-                            .arg(format!("{}", child.id()))
-                            .output()
-                            .unwrap();
-                        CommandResult::err("Time Limit Exceeded: killed -9".to_string())
-                    }
-                }
-            }
+        match status {
+            // FIXME:(everpcpc) stdout_child and stderr_child should be force terminated
+            None => kill_child(&mut child),
             Some(s) => {
                 stdout_child.join().unwrap();
                 stderr_child.join().unwrap();
-                let duration = start.elapsed()?;
-                CommandResult::chunked_ok(
+                Ok(CommandResult::chunked_ok(
                     s.code().unwrap_or(-1),
-                    duration.as_secs_f64(),
+                    start.elapsed()?.as_secs_f64(),
                     start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-                )
+                ))
             }
-        };
-
-        Ok(r)
+        }
     }
 }
 
@@ -209,6 +219,21 @@ impl CommandResult {
     }
 }
 
+fn kill_child(child: &mut process::Child) -> Result<CommandResult> {
+    let pid = Pid::from_raw(child.id() as i32);
+    signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("kill failed: {}", e))?;
+    let one_sec = Duration::from_secs(1);
+    match child.wait_timeout(one_sec)? {
+        Some(s) => Ok(CommandResult::err(format!("Time Limit Exceeded: {}", s))),
+        None => {
+            signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("force kill failed: {}", e))?;
+            Ok(CommandResult::err(
+                "Time Limit Exceeded: killed".to_string(),
+            ))
+        }
+    }
+}
+
 pub fn read_config(config_file: &str) -> Result<Configs> {
     let p = Path::new(config_file);
     let mut cmds: Configs = HashMap::new();
@@ -237,6 +262,11 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
             None => continue,
             Some(e) => e,
         };
+        // NOTE:(everpcpc) shell pipe not supported
+        if exec.contains("|") {
+            println!("Warning: command {} with pipe ignored", name);
+            continue;
+        }
 
         let mut args: Vec<Regex> = Vec::new();
         let re = Regex::new(RE_ARGS)?;
