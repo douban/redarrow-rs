@@ -164,12 +164,12 @@ impl Command {
 
 fn kill_child(child: &mut process::Child) -> Result<CommandResult> {
     let pid = Pid::from_raw(child.id() as i32);
-    signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("kill failed: {}", e))?;
+    signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("Kill failed: {}", e))?;
     let one_sec = Duration::from_secs(1);
     match child.wait_timeout(one_sec)? {
         Some(s) => Ok(CommandResult::err(format!("Time Limit Exceeded: {}", s))),
         None => {
-            signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("force kill failed: {}", e))?;
+            signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("Force kill failed: {}", e))?;
             Ok(CommandResult::err(
                 "Time Limit Exceeded: killed".to_string(),
             ))
