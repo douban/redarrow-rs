@@ -2,7 +2,7 @@ use std::f64::{INFINITY, NEG_INFINITY};
 
 use argh::FromArgs;
 
-use redarrow::{dispatcher, webclient};
+use redarrow::{result, webclient};
 
 /*
 Threshold format: [@]start:end
@@ -112,7 +112,7 @@ fn main() {
         Some(a) => a.split(" ").map(|x| x.to_string()).collect(),
     };
 
-    let ret: dispatcher::CommandResult;
+    let ret: result::CommandResult;
 
     let client = webclient::Client::new(args.host, 4205, args.command, arguments);
     let result = client.run_command();

@@ -6,6 +6,7 @@ use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
 
 use redarrow::dispatcher;
+use redarrow::result;
 
 #[argh(description = "execute command for remote redarrow client")]
 #[derive(FromArgs, Debug)]
@@ -13,7 +14,7 @@ struct ServerArgs {
     #[argh(
         option,
         short = 'c',
-        default = "\"/etc/redarrow.conf\".to_string()",
+        default = r#""/etc/redarrow.conf".to_string()"#,
         description = "path to config file"
     )]
     config: String,
@@ -131,7 +132,7 @@ fn handle_command_chunked(
 ) -> HttpResponse {
     match configs.get(command) {
         None => {
-            let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
+            let err = result::CommandResult::err(format!("Unknown Command: {}", command));
             HttpResponse::BadRequest()
                 .body(format!("0> {}\n", serde_json::to_string(&err).unwrap()))
         }
@@ -163,7 +164,7 @@ fn handle_command_chunked(
                         arguments.iter().map(|x| x.as_str()).collect(),
                         tx_cmd.clone(),
                     )
-                    .unwrap_or_else(|err| dispatcher::CommandResult::err(format!("{}", err)));
+                    .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)));
                 tx_cmd
                     .send(format!("0> {}\n", serde_json::to_string(&r).unwrap()))
                     .unwrap();
@@ -182,13 +183,13 @@ fn handle_command_no_chunked(
 ) -> HttpResponse {
     match configs.get(command) {
         None => {
-            let err = dispatcher::CommandResult::err(format!("Unknown Command: {}", command));
+            let err = result::CommandResult::err(format!("Unknown Command: {}", command));
             HttpResponse::BadRequest().json(err)
         }
         Some(cmd) => {
             let r = cmd
                 .execute(arguments)
-                .unwrap_or_else(|err| dispatcher::CommandResult::err(format!("{}", err)));
+                .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)));
             HttpResponse::Ok().json(r)
         }
     }

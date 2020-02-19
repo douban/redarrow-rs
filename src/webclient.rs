@@ -8,7 +8,7 @@ use anyhow::Result;
 use curl::easy::Easy;
 use url::form_urlencoded;
 
-use crate::dispatcher;
+use crate::result;
 
 #[derive(Debug)]
 pub struct It {
@@ -50,7 +50,7 @@ impl Client {
         )
     }
 
-    pub fn run_command(self: &Self) -> Result<dispatcher::CommandResult> {
+    pub fn run_command(self: &Self) -> Result<result::CommandResult> {
         let mut dst = Vec::new();
         let mut easy = Easy::new();
         easy.connect_timeout(Duration::new(3, 0))?;
@@ -64,7 +64,7 @@ impl Client {
             transfer.perform()?;
         }
         let body = String::from_utf8(dst)?;
-        let ret: dispatcher::CommandResult = serde_json::from_str(body.as_str())?;
+        let ret: result::CommandResult = serde_json::from_str(body.as_str())?;
         Ok(ret)
     }
 
@@ -99,10 +99,11 @@ impl Client {
                 })
                 .unwrap();
             transfer.perform().unwrap_or_else(|e| {
+                let r = result::CommandResult::err(format!("{}", e));
                 tx.send(It {
                     host: self.host.clone(),
                     fd: 0,
-                    line: format!("{{\"error\": \"{}\"}}", e),
+                    line: serde_json::to_string(&r).unwrap(),
                 })
                 .unwrap();
             })

@@ -11,8 +11,9 @@ use ini::Ini;
 use nix::sys::signal;
 use nix::unistd::Pid;
 use regex::{Captures, Regex};
-use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
+
+use crate::result::CommandResult;
 
 static RE_ARGS: &str = r"\$\{(\d+)\}";
 
@@ -161,72 +162,14 @@ impl Command {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CommandResult {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stdout: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stderr: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exit_code: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time_cost: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-impl CommandResult {
-    pub fn ok(
-        stdout: String,
-        stderr: String,
-        exit_code: i32,
-        time_cost: f64,
-        start_time: f64,
-    ) -> CommandResult {
-        CommandResult {
-            stdout: Some(stdout),
-            stderr: Some(stderr),
-            exit_code: Some(exit_code),
-            time_cost: Some(time_cost),
-            start_time: Some(start_time),
-            error: None,
-        }
-    }
-
-    pub fn chunked_ok(exit_code: i32, time_cost: f64, start_time: f64) -> CommandResult {
-        CommandResult {
-            stdout: None,
-            stderr: None,
-            exit_code: Some(exit_code),
-            time_cost: Some(time_cost),
-            start_time: Some(start_time),
-            error: None,
-        }
-    }
-
-    pub fn err(err: String) -> CommandResult {
-        CommandResult {
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            time_cost: None,
-            start_time: None,
-            error: Some(err),
-        }
-    }
-}
-
 fn kill_child(child: &mut process::Child) -> Result<CommandResult> {
     let pid = Pid::from_raw(child.id() as i32);
-    signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("kill failed: {}", e))?;
+    signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("Kill failed: {}", e))?;
     let one_sec = Duration::from_secs(1);
     match child.wait_timeout(one_sec)? {
         Some(s) => Ok(CommandResult::err(format!("Time Limit Exceeded: {}", s))),
         None => {
-            signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("force kill failed: {}", e))?;
+            signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("Force kill failed: {}", e))?;
             Ok(CommandResult::err(
                 "Time Limit Exceeded: killed".to_string(),
             ))
