@@ -13,7 +13,7 @@ struct ServerArgs {
     #[argh(
         option,
         short = 'c',
-        default = "\"/etc/redarrow.conf\".to_string()",
+        default = r#""/etc/redarrow.conf".to_string()"#,
         description = "path to config file"
     )]
     config: String,
