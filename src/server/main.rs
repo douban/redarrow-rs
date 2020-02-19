@@ -25,6 +25,14 @@ struct ServerArgs {
         description = "redarrow service port"
     )]
     port: u16,
+
+    #[argh(
+        option,
+        short = 'w',
+        default = "4",
+        description = "number of worker processes for handling requests"
+    )]
+    workers: usize,
 }
 
 // The query parameters for command.
@@ -51,6 +59,7 @@ async fn main() -> std::io::Result<()> {
             .service(handlers_command)
     })
     .bind(format!("0.0.0.0:{}", args.port))?
+    .workers(args.workers)
     .run();
 
     let srv = server.clone();
