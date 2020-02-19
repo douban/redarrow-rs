@@ -15,7 +15,8 @@ let result = client.run_command();
 ## run server
 
 ```shell
-export RUST_LOG="actix_web=info"
+# export RUST_LOG="actix_web=info,redarrow_server=info"
+export RUST_LOG="info"
 redarrow-server -c misc/example.conf
 ```
 

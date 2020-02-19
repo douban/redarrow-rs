@@ -264,7 +264,7 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         };
         // NOTE:(everpcpc) shell pipe not supported
         if exec.contains("|") {
-            println!("Warning: command {} with pipe ignored", name);
+            log::warn!("command {} with pipe ignored", name);
             continue;
         }
 
