@@ -99,10 +99,11 @@ impl Client {
                 })
                 .unwrap();
             transfer.perform().unwrap_or_else(|e| {
+                let r = result::CommandResult::err(format!("{}", e));
                 tx.send(It {
                     host: self.host.clone(),
                     fd: 0,
-                    line: format!("{{\"error\": \"{}\"}}", e),
+                    line: serde_json::to_string(&r).unwrap(),
                 })
                 .unwrap();
             })
