@@ -40,7 +40,7 @@ async fn main() -> std::io::Result<()> {
     let args: ServerArgs = argh::from_env();
 
     let configs = dispatcher::read_config(args.config.as_str()).unwrap();
-    println!("parsed {} commands, starting server...", &configs.len());
+    log::info!("parsed {} commands, starting server...", &configs.len());
 
     let (tx, rx) = std::sync::mpsc::channel::<&str>();
 
@@ -76,7 +76,7 @@ async fn main() -> std::io::Result<()> {
         loop {
             stream_hup.recv().await;
             // TODO:(everpcpc) impl reload
-            println!("\n*** SIGHUP received. Reloading. ***\n");
+            log::info!("SIGHUP received. Reloading...");
             hup_tx.send("TERM").unwrap();
         }
     });
@@ -85,7 +85,7 @@ async fn main() -> std::io::Result<()> {
     actix_rt::spawn(async move {
         loop {
             stream_term.recv().await;
-            println!("\n*** SIGTERM received. Terminating. ***\n");
+            log::info!("SIGTERM received. Terminating...");
             term_tx.send("TERM").unwrap();
         }
     });
