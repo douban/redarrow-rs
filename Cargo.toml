@@ -1,6 +1,6 @@
 [package]
 name = "redarrow"
-version = "0.10.7"
+version = "0.10.8"
 authors = ["everpcpc <git@everpcpc.com>"]
 edition = "2018"
 license = "MIT"
