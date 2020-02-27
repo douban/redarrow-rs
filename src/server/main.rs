@@ -123,7 +123,7 @@ async fn handlers_command(
     };
     let arguments = match &opts.argument {
         None => Vec::new(),
-        Some(a) => a.split(" ").collect(),
+        Some(a) => shlex::split(a).unwrap(),
     };
 
     if chunked {
@@ -135,7 +135,7 @@ async fn handlers_command(
 
 fn handle_command_chunked(
     command: &str,
-    arguments: Vec<&str>,
+    arguments: Vec<String>,
     configs: web::Data<dispatcher::Configs>,
 ) -> HttpResponse {
     match configs.get(command) {
@@ -166,9 +166,9 @@ fn handle_command_chunked(
             });
             let cmd = cmd.clone();
             // NOTE:(everpcpc) use Vec<String> to avoid lifetime issue
-            let arguments: Vec<String> = arguments.iter().map(|x| x.to_string()).collect();
+            // let arguments: Vec<String> = arguments.iter().map(|x| x.to_string()).collect();
             std::thread::spawn(move || {
-                let arguments = arguments.iter().map(|x| x.as_str()).collect();
+                // let arguments = arguments.iter().map(|x| x.as_str()).collect();
                 let ret = format!(
                     "0> {}\n",
                     cmd.execute_iter(arguments, tx_cmd.clone())
@@ -190,7 +190,7 @@ fn handle_command_chunked(
 
 fn handle_command_no_chunked(
     command: &str,
-    arguments: Vec<&str>,
+    arguments: Vec<String>,
     configs: web::Data<dispatcher::Configs>,
 ) -> HttpResponse {
     match configs.get(command) {
