@@ -165,10 +165,7 @@ fn handle_command_chunked(
                 }
             });
             let cmd = cmd.clone();
-            // NOTE:(everpcpc) use Vec<String> to avoid lifetime issue
-            // let arguments: Vec<String> = arguments.iter().map(|x| x.to_string()).collect();
             std::thread::spawn(move || {
-                // let arguments = arguments.iter().map(|x| x.as_str()).collect();
                 let ret = format!(
                     "0> {}\n",
                     cmd.execute_iter(arguments, tx_cmd.clone())
