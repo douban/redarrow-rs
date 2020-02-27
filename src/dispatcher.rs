@@ -37,7 +37,8 @@ impl Command {
         }
     }
 
-    fn get_command(self: &Self, arguments: Vec<&str>) -> Result<String> {
+    // get a command with arguments
+    fn get_command(self: &Self, arguments: Vec<String>) -> Result<(String, Vec<String>)> {
         if arguments.len() != self.args.len() {
             return Err(anyhow!(
                 "Illegal Argument: Got {} args ({} expected)",
@@ -50,25 +51,39 @@ impl Command {
                 return Err(anyhow!("Illegal Argument: {}", arg));
             }
         }
-        let exec = Regex::new(RE_ARGS)?
-            .replace_all(&self.exec, |caps: &Captures| match caps.get(1) {
-                None => "",
-                Some(c) => {
-                    let arg_idx = c.as_str().parse::<usize>().unwrap_or(0);
-                    arguments[arg_idx]
-                }
-            })
-            .into_owned();
-        Ok(exec)
+
+        let mut cmd: &str = "";
+        let mut args: Vec<String> = Vec::new();
+
+        let re = Regex::new(RE_ARGS)?;
+
+        let splited = shlex::split(self.exec.as_str()).unwrap();
+        for (i, arg) in splited.iter().enumerate() {
+            // first argument is command
+            if i == 0 {
+                cmd = arg;
+                continue;
+            }
+            let a = re
+                .replace_all(arg, |caps: &Captures| match caps.get(1) {
+                    None => "".to_string(),
+                    Some(c) => {
+                        let arg_idx = c.as_str().parse::<usize>().unwrap_or(0);
+                        arguments[arg_idx].clone()
+                    }
+                })
+                .into_owned();
+            args.push(a.trim_matches('"').trim_matches('\'').to_string());
+        }
+        Ok((cmd.to_string(), args))
     }
 
-    pub fn execute(self: &Self, arguments: Vec<&str>) -> Result<CommandResult> {
-        let cmd = self.get_command(arguments)?;
-        let args: Vec<&str> = cmd.split(" ").collect();
+    pub fn execute(self: &Self, arguments: Vec<String>) -> Result<CommandResult> {
+        let (cmd, args) = self.get_command(arguments)?;
 
         let start = SystemTime::now();
-        let mut child = process::Command::new(args[0])
-            .args(&args[1..])
+        let mut child = process::Command::new(cmd)
+            .args(args)
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()?;
@@ -109,16 +124,15 @@ impl Command {
 
     pub fn execute_iter(
         self: &Self,
-        arguments: Vec<&str>,
+        arguments: Vec<String>,
         tx: std::sync::mpsc::Sender<String>,
     ) -> Result<CommandResult> {
-        let cmd = self.get_command(arguments)?;
-        let args: Vec<&str> = cmd.split(" ").collect();
+        let (cmd, args) = self.get_command(arguments)?;
 
         let start = SystemTime::now();
 
-        let mut child = process::Command::new(args[0])
-            .args(&args[1..])
+        let mut child = process::Command::new(cmd)
+            .args(args)
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()?;
@@ -238,4 +252,66 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         cmds.insert(name.to_string(), cmd);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_command() {
+        let (cmd, args) = Command {
+            name: "test".to_string(),
+            exec: "sleep ${0}".to_string(),
+            args: vec![Regex::new(r"[A-Za-z0-9._~:/?@!$&'()*+,=-]+").unwrap()],
+            time_limit: 5,
+        }
+        .get_command(vec!["1".to_string()])
+        .unwrap();
+        assert_eq!(cmd, "sleep");
+        assert_eq!(args, vec!["1"]);
+    }
+
+    #[test]
+    fn test_get_command_with_quote() {
+        let (cmd, args) = Command {
+            name: "test".to_string(),
+            exec: "echo ${0} \"${1}\"".to_string(),
+            args: vec![Regex::new(r"\d+").unwrap(), Regex::new(r"[\d ]+").unwrap()],
+            time_limit: 5,
+        }
+        .get_command(vec!["1".to_string(), "3 4".to_string()])
+        .unwrap();
+        assert_eq!(cmd, "echo");
+        assert_eq!(args, vec!["1".to_string(), "3 4".to_string()]);
+
+        let (cmd, args) = Command {
+            name: "test".to_string(),
+            exec: "echo \'${0}\' \'${1}\'".to_string(),
+            args: vec![Regex::new(r"\w+").unwrap(), Regex::new(r"[\w ]+").unwrap()],
+            time_limit: 5,
+        }
+        .get_command(vec!["1".to_string(), "3 4".to_string()])
+        .unwrap();
+        assert_eq!(cmd, "echo");
+        assert_eq!(args, vec!["1", "3 4"]);
+    }
+
+    #[test]
+    fn test_get_command_with_space() {
+        let (cmd, args) = Command {
+            name: "test".to_string(),
+            exec: "echo -e \"${0} ${1}\" ${2}".to_string(),
+            args: vec![
+                Regex::new(r"\w+").unwrap(),
+                Regex::new(r"[\w ]+").unwrap(),
+                Regex::new(r"[\w ]+").unwrap(),
+            ],
+            time_limit: 5,
+        }
+        .get_command(vec!["1".to_string(), "3 4".to_string(), "8".to_string()])
+        .unwrap();
+        assert_eq!(cmd, "echo");
+        assert_eq!(args, vec!["-e", "1 3 4", "8"]);
+    }
 }
