@@ -47,6 +47,10 @@ impl Command {
             ));
         }
         for (i, arg) in arguments.iter().enumerate() {
+            // NOTE: allow empty argument
+            if arg == "" {
+                continue
+            }
             if !&self.args[i].is_match(arg) {
                 return Err(anyhow!("Illegal Argument: {}", arg));
             }
@@ -291,10 +295,10 @@ mod tests {
             args: vec![Regex::new(r"\w+").unwrap(), Regex::new(r"[\w ]+").unwrap()],
             time_limit: 5,
         }
-        .get_command(vec!["1".to_string(), "3 4".to_string()])
+        .get_command(vec!["1".to_string(), "34".to_string()])
         .unwrap();
         assert_eq!(cmd, "echo");
-        assert_eq!(args, vec!["1", "3 4"]);
+        assert_eq!(args, vec!["1", "34"]);
     }
 
     #[test]
@@ -309,9 +313,9 @@ mod tests {
             ],
             time_limit: 5,
         }
-        .get_command(vec!["1".to_string(), "3 4".to_string(), "8".to_string()])
+        .get_command(vec!["1".to_string(), "4".to_string(), "8".to_string()])
         .unwrap();
         assert_eq!(cmd, "echo");
-        assert_eq!(args, vec!["-e", "1 3 4", "8"]);
+        assert_eq!(args, vec!["-e", "1 4", "8"]);
     }
 }
