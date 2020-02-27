@@ -48,8 +48,16 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     let args: ServerArgs = argh::from_env();
 
-    let configs = dispatcher::read_config(args.config.as_str()).unwrap();
-    log::info!("parsed {} commands, starting server...", &configs.len());
+    let configs = match dispatcher::read_config(args.config.as_str()) {
+        Ok(c) => {
+            log::info!("parsed {} commands, starting server...", &c.len());
+            c
+        }
+        Err(e) => {
+            log::error!("parse config error: {}", e);
+            return Ok(());
+        }
+    };
 
     let (tx, rx) = std::sync::mpsc::channel::<&str>();
 

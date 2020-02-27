@@ -195,7 +195,7 @@ pub fn read_config(config_file: &str) -> Result<Configs> {
 fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Result<()> {
     let conf = Ini::load_from_file_noescape(config_file)?;
 
-    for (sec, prop) in conf.iter() {
+    'outer: for (sec, prop) in conf.iter() {
         let name = match sec {
             None => continue,
             Some(n) => n,
@@ -207,7 +207,7 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         };
         // NOTE:(everpcpc) shell pipe not supported
         if exec.contains("|") {
-            log::warn!("command {} with pipe ignored", name);
+            log::warn!("ignored command with pipe: {}", name);
             continue;
         }
 
@@ -216,7 +216,14 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         for cap in re.captures_iter(exec) {
             let arg_name = format!("arg{}", cap.get(1).map_or("0", |m| m.as_str()));
             let arg = prop.get(arg_name.as_str()).unwrap();
-            let arg_re = Regex::new(arg)?;
+
+            let arg_re = match Regex::new(arg) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("ignored error command {}: {}", name, e);
+                    continue 'outer;
+                }
+            };
             args.push(arg_re);
         }
 
