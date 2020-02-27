@@ -129,8 +129,9 @@ impl Command {
             stdout_reader
                 .lines()
                 .filter_map(|line| line.ok())
-                .for_each(|line| {
-                    out_tx.send(format!("1> {}\n", line)).unwrap();
+                .for_each(|line| match out_tx.send(format!("1> {}\n", line)) {
+                    Err(_) => log::warn!("error sending to stdout: {}", line),
+                    Ok(()) => {}
                 });
         });
         let stderr_reader = BufReader::new(child.stderr.take().ok_or(anyhow!("stderr error"))?);
@@ -139,8 +140,9 @@ impl Command {
             stderr_reader
                 .lines()
                 .filter_map(|line| line.ok())
-                .for_each(|line| {
-                    err_tx.send(format!("2> {}\n", line)).unwrap();
+                .for_each(|line| match err_tx.send(format!("2> {}\n", line)) {
+                    Err(_) => log::warn!("error sending to stderr: {}", line),
+                    Ok(()) => {}
                 });
         });
         let timeout = Duration::from_secs(self.time_limit);

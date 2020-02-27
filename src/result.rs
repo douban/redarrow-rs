@@ -56,4 +56,8 @@ impl CommandResult {
             error: Some(err),
         }
     }
+
+    pub fn to_json(self: &Self,) -> String {
+        serde_json::to_string(self).unwrap()
+    }
 }

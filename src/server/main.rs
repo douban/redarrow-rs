@@ -139,11 +139,10 @@ fn handle_command_chunked(
     configs: web::Data<dispatcher::Configs>,
 ) -> HttpResponse {
     match configs.get(command) {
-        None => {
-            let err = result::CommandResult::err(format!("Unknown Command: {}", command));
-            HttpResponse::BadRequest()
-                .body(format!("0> {}\n", serde_json::to_string(&err).unwrap()))
-        }
+        None => HttpResponse::BadRequest().body(format!(
+            "0> {}\n",
+            result::CommandResult::err(format!("Unknown Command: {}", command)).to_json()
+        )),
         Some(cmd) => {
             let (tx_body, rx_body) =
                 actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
@@ -156,7 +155,9 @@ fn handle_command_chunked(
                             if result == "\0" {
                                 break;
                             }
-                            tx_body.send(Ok(Bytes::from(result))).unwrap();
+                            if tx_body.send(Ok(Bytes::from(result))).is_err() {
+                                break;
+                            };
                             // HACK:(everpcpc) wait 1ns to send
                             futures_timer::Delay::new(std::time::Duration::from_nanos(1)).await;
                         }
@@ -167,17 +168,20 @@ fn handle_command_chunked(
             // NOTE:(everpcpc) use Vec<String> to avoid lifetime issue
             let arguments: Vec<String> = arguments.iter().map(|x| x.to_string()).collect();
             std::thread::spawn(move || {
-                let r = cmd
-                    .execute_iter(
-                        arguments.iter().map(|x| x.as_str()).collect(),
-                        tx_cmd.clone(),
-                    )
-                    .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)));
-                tx_cmd
-                    .send(format!("0> {}\n", serde_json::to_string(&r).unwrap()))
-                    .unwrap();
+                let arguments = arguments.iter().map(|x| x.as_str()).collect();
+                let ret = format!(
+                    "0> {}\n",
+                    cmd.execute_iter(arguments, tx_cmd.clone())
+                        .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)))
+                        .to_json()
+                );
+                if tx_cmd.send(ret).is_err() {
+                    return;
+                }
                 // HACK:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
-                tx_cmd.send("\0".to_string()).unwrap();
+                if tx_cmd.send("\0".to_string()).is_err() {
+                    return;
+                }
             });
             HttpResponse::Ok().streaming(rx_body)
         }
@@ -202,45 +206,3 @@ fn handle_command_no_chunked(
         }
     }
 }
-
-// // DEPRECATE:
-// fn handle_list_no_chunked(configs: web::Data<dispatcher::Configs>) -> HttpResponse {
-//     let r = dispatcher::CommandResult::ok(
-//         format!(
-//             "Available commands:\n{}\n",
-//             configs
-//                 .keys()
-//                 .map(|x| x.to_string())
-//                 .collect::<Vec<String>>()
-//                 .join("\n")
-//         ),
-//         "".to_string(),
-//         0,
-//         0.0,
-//         0.0,
-//     );
-//     return HttpResponse::Ok().json(r);
-// }
-
-// // DEPRECATE:
-// fn handle_list_chunked(configs: web::Data<dispatcher::Configs>) -> HttpResponse {
-//     let (tx_body, rx_body) = actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
-//     actix_rt::spawn(async move {
-//         tx_body
-//             .send(Ok(Bytes::from("1> Available commands:\n")))
-//             .unwrap();
-//         for key in configs.keys() {
-//             tx_body
-//                 .send(Ok(Bytes::from(format!("1> {}\n", key))))
-//                 .unwrap();
-//         }
-//         let r = dispatcher::CommandResult::chunked_ok(0, 0.0, 0.0);
-//         tx_body
-//             .send(Ok(Bytes::from(format!(
-//                 "0> {}\n",
-//                 serde_json::to_string(&r).unwrap()
-//             ))))
-//             .unwrap();
-//     });
-//     return HttpResponse::Ok().streaming(rx_body);
-// }

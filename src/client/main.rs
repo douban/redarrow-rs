@@ -58,13 +58,10 @@ fn main() {
 fn print_result(rx: Receiver<webclient::It>, detail: bool) -> i32 {
     let mut ret = 0;
     loop {
-        let result = rx.recv().unwrap_or_else(|_| {
-            let r = result::CommandResult::err("Command unfinished".to_string());
-            webclient::It {
-                host: "".to_string(),
-                fd: 0,
-                line: serde_json::to_string(&r).unwrap(),
-            }
+        let result = rx.recv().unwrap_or_else(|_| webclient::It {
+            host: "".to_string(),
+            fd: 0,
+            line: result::CommandResult::err("Command unfinished".to_string()).to_json(),
         });
         match result.fd {
             0 => {
@@ -96,13 +93,10 @@ fn print_multple_hosts_result(rx: Receiver<webclient::It>) -> BTreeMap<String, i
     let mut metas: BTreeMap<String, i32> = BTreeMap::new();
     let mut output: BTreeMap<String, Vec<String>> = BTreeMap::new();
     loop {
-        let result = rx.recv().unwrap_or_else(|_| {
-            let r = result::CommandResult::err("All finished".to_string());
-            webclient::It {
-                host: "".to_string(),
-                fd: 0,
-                line: serde_json::to_string(&r).unwrap(),
-            }
+        let result = rx.recv().unwrap_or_else(|_| webclient::It {
+            host: "".to_string(),
+            fd: 0,
+            line: result::CommandResult::err("All finished".to_string()).to_json(),
         });
         if result.host == "" {
             break;
