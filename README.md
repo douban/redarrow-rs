@@ -2,6 +2,7 @@
 
 Execute commands on remote servers.
 
+![build](https://github.com/douban/redarrow-rs/workflows/build/badge.svg)
 [![crates.io](https://img.shields.io/crates/v/redarrow.svg)](https://crates.io/crates/redarrow)
 ![License](https://img.shields.io/crates/l/redarrow.svg)
 
