@@ -123,7 +123,7 @@ async fn handlers_command(
     };
     let arguments = match &opts.argument {
         None => Vec::new(),
-        Some(a) => shlex::split(a).unwrap(),
+        Some(a) => a.split(" ").map(|x| x.to_string()).collect(),
     };
 
     if chunked {
