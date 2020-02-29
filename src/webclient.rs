@@ -10,6 +10,8 @@ use url::form_urlencoded;
 
 use crate::result;
 
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug)]
 pub struct It {
     pub host: String,
@@ -19,10 +21,12 @@ pub struct It {
 
 #[derive(Debug)]
 pub struct Client {
-    pub host: String,
-    pub port: u32,
-    pub command: String,
-    pub arguments: Vec<String>,
+    host: String,
+    port: u32,
+    command: String,
+    arguments: Vec<String>,
+    user_agent: String,
+    connect_timeout: Duration,
 }
 
 impl Client {
@@ -32,7 +36,21 @@ impl Client {
             port: port,
             command: command,
             arguments: arguments,
+            user_agent: format!("Redarrow-webclient/{}", VERSION),
+            connect_timeout: Duration::new(3, 0),
         }
+    }
+
+    pub fn set_user_agent(self: &mut Self, ua: &str) {
+        self.user_agent = format!("{}/{}", ua, VERSION);
+    }
+
+    pub fn set_connect_timeout(self: &mut Self, timeout: Duration) {
+        self.connect_timeout = timeout;
+    }
+
+    pub fn is_multi_host(self: &Self) -> bool {
+        self.host.contains(",")
     }
 
     fn build_url(self: &Self, chunked: bool) -> String {
@@ -53,7 +71,8 @@ impl Client {
     pub fn run_command(self: &Self) -> Result<result::CommandResult> {
         let mut dst = Vec::new();
         let mut easy = Easy::new();
-        easy.connect_timeout(Duration::new(3, 0))?;
+        easy.useragent(self.user_agent.as_str())?;
+        easy.connect_timeout(self.connect_timeout)?;
         easy.url(self.build_url(false).as_str())?;
         {
             let mut transfer = easy.transfer();
@@ -70,7 +89,8 @@ impl Client {
 
     pub fn run_realtime(self: &Self, tx: Sender<It>) {
         let mut easy = Easy::new();
-        easy.connect_timeout(Duration::new(3, 0)).unwrap();
+        easy.useragent(self.user_agent.as_str()).unwrap();
+        easy.connect_timeout(self.connect_timeout).unwrap();
         easy.url(self.build_url(true).as_str()).unwrap();
         let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
         let mut tmp = "".to_string();
