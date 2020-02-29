@@ -49,7 +49,7 @@ impl Command {
         for (i, arg) in arguments.iter().enumerate() {
             // NOTE: allow empty argument
             if arg == "" {
-                continue
+                continue;
             }
             if !&self.args[i].is_match(arg) {
                 return Err(anyhow!("Illegal Argument: {}", arg));
@@ -61,7 +61,9 @@ impl Command {
 
         let re = Regex::new(RE_ARGS)?;
 
-        let splited = shlex::split(self.exec.as_str()).unwrap();
+        let splited = shlex::split(self.exec.as_str())
+            .ok_or(0)
+            .map_err(|_| anyhow!("Split command error for {}", self.name))?;
         for (i, arg) in splited.iter().enumerate() {
             // first argument is command
             if i == 0 {
@@ -72,8 +74,11 @@ impl Command {
                 .replace_all(arg, |caps: &Captures| match caps.get(1) {
                     None => "".to_string(),
                     Some(c) => {
-                        let arg_idx = c.as_str().parse::<usize>().unwrap_or(0);
-                        arguments[arg_idx].clone()
+                        match c.as_str().parse::<usize>() {
+                            // NOTE: use empty string if parse arg idx error
+                            Err(_) => "".to_string(),
+                            Ok(idx) => arguments[idx].clone(),
+                        }
                     }
                 })
                 .into_owned();
@@ -99,29 +104,32 @@ impl Command {
             None => kill_child(&mut child),
             Some(s) => {
                 let stdout = match child.stdout.as_mut() {
+                    None => "".to_string(),
                     Some(out) => {
                         let mut ss = String::new();
                         out.read_to_string(&mut ss)?;
                         ss
                     }
-                    None => "".to_string(),
                 };
                 let stderr = match child.stderr.as_mut() {
+                    None => "".to_string(),
                     Some(err) => {
                         let mut ss = String::new();
                         err.read_to_string(&mut ss)?;
                         ss
                     }
-                    None => "".to_string(),
                 };
 
-                Ok(CommandResult::ok(
-                    stdout,
-                    stderr,
-                    s.code().unwrap_or(-1),
-                    start.elapsed()?.as_secs_f64(),
-                    start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-                ))
+                Ok(match s.code() {
+                    None => CommandResult::err("Terminated by signal".to_string()),
+                    Some(code) => CommandResult::ok(
+                        stdout,
+                        stderr,
+                        code,
+                        start.elapsed()?.as_secs_f64(),
+                        start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+                    ),
+                })
             }
         }
     }
@@ -170,13 +178,20 @@ impl Command {
             // FIXME:(everpcpc) stdout_child and stderr_child should be force terminated
             None => kill_child(&mut child),
             Some(s) => {
-                stdout_child.join().unwrap();
-                stderr_child.join().unwrap();
-                Ok(CommandResult::chunked_ok(
-                    s.code().unwrap_or(-1),
-                    start.elapsed()?.as_secs_f64(),
-                    start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-                ))
+                stdout_child
+                    .join()
+                    .map_err(|e| anyhow!("stdout failed: {:?}", e))?;
+                stderr_child
+                    .join()
+                    .map_err(|e| anyhow!("stderr failed: {:?}", e))?;
+                Ok(match s.code() {
+                    None => CommandResult::err("Terminated by signal".to_string()),
+                    Some(code) => CommandResult::chunked_ok(
+                        code,
+                        start.elapsed()?.as_secs_f64(),
+                        start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+                    ),
+                })
             }
         }
     }
@@ -186,15 +201,13 @@ fn kill_child(child: &mut process::Child) -> Result<CommandResult> {
     let pid = Pid::from_raw(child.id() as i32);
     signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("Kill failed: {}", e))?;
     let one_sec = Duration::from_secs(1);
-    match child.wait_timeout(one_sec)? {
-        Some(s) => Ok(CommandResult::err(format!("Time Limit Exceeded: {}", s))),
+    Ok(match child.wait_timeout(one_sec)? {
+        Some(s) => CommandResult::err(format!("Time Limit Exceeded: {}", s)),
         None => {
             signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("Force kill failed: {}", e))?;
-            Ok(CommandResult::err(
-                "Time Limit Exceeded: killed".to_string(),
-            ))
+            CommandResult::err("Time Limit Exceeded: killed".to_string())
         }
-    }
+    })
 }
 
 pub fn read_config(config_file: &str) -> Result<Configs> {
@@ -202,8 +215,12 @@ pub fn read_config(config_file: &str) -> Result<Configs> {
     let mut cmds: Configs = HashMap::new();
 
     if p.is_dir() {
-        let dir = p.join("*").to_str().unwrap().to_string();
-        for e in glob(dir.as_str())? {
+        let d = p.join("*");
+        let dir = d
+            .to_str()
+            .ok_or(0)
+            .map_err(|_| anyhow!("Config dir error"))?;
+        for e in glob(dir)? {
             parse_config_file(e?, &mut cmds)?;
         }
     } else {
@@ -235,7 +252,10 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         let re = Regex::new(RE_ARGS)?;
         for cap in re.captures_iter(exec) {
             let arg_name = format!("arg{}", cap.get(1).map_or("0", |m| m.as_str()));
-            let arg = prop.get(arg_name.as_str()).unwrap();
+            let arg = prop
+                .get(arg_name.as_str())
+                .ok_or(0)
+                .map_err(|_| anyhow!("{} not found for {}", arg_name, name))?;
 
             let arg_re = match Regex::new(arg) {
                 Ok(r) => r,
