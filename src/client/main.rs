@@ -37,7 +37,7 @@ fn main() {
 
     let client = webclient::Client::new(args.host, args.port, args.command, args.arguments);
     let (tx, rx): (Sender<webclient::It>, Receiver<webclient::It>) = mpsc::channel();
-    if client.host.contains(",") {
+    if client.is_multi_host() {
         let child = thread::spawn(move || client.run_parallel(tx));
         let exit_codes = print_multple_hosts_result(rx);
         if exit_codes.iter().all(|(_, exit_code)| *exit_code == 0) {
