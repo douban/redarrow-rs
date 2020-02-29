@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
 use argh::FromArgs;
 
-use redarrow::{result, webclient};
+use redarrow::result::CommandResult;
+use redarrow::webclient::{Client, It};
 
 #[argh(description = "execute remote command from a redarrow server")]
 #[derive(FromArgs, Debug)]
@@ -35,107 +35,118 @@ fn main() {
 
     let exit_code: i32;
 
-    let client = webclient::Client::new(args.host, args.port, args.command, args.arguments);
-    let (tx, rx): (Sender<webclient::It>, Receiver<webclient::It>) = mpsc::channel();
-    if client.is_multi_host() {
-        let child = thread::spawn(move || client.run_parallel(tx));
-        let exit_codes = print_multple_hosts_result(rx);
-        if exit_codes.iter().all(|(_, exit_code)| *exit_code == 0) {
-            exit_code = 0;
-        } else {
-            exit_code = 1;
-        }
-        child.join().unwrap();
+    if args.host.contains(",") {
+        exit_code = run_parallel(args);
     } else {
-        let child = thread::spawn(move || client.run_realtime(tx));
-        exit_code = print_result(rx, args.detail);
-        child.join().unwrap();
+        exit_code = run_single(args);
     }
 
     std::process::exit(exit_code);
 }
 
-fn print_result(rx: Receiver<webclient::It>, detail: bool) -> i32 {
-    let mut ret = 0;
-    loop {
-        let result = rx.recv().unwrap_or_else(|_| webclient::It {
-            host: "".to_string(),
-            fd: 0,
-            line: result::CommandResult::err("Command unfinished".to_string()).to_json(),
-        });
-        match result.fd {
-            0 => {
-                let v: serde_json::Value = serde_json::from_str(result.line.as_str()).unwrap();
-                if detail {
-                    eprintln!("{}", "=".repeat(40));
-                    eprintln!("{}", serde_json::to_string_pretty(&v).unwrap());
+fn run_single(args: ClientArgs) -> i32 {
+    let client = Client::new(args.host, args.port, args.command, args.arguments);
+    let (tx, rx) = mpsc::channel::<It>();
+    // NOTE: will not join this thread
+    let _child = thread::spawn(move || loop {
+        match rx.recv() {
+            Err(_) => eprintln!("Recv Error!"),
+            Ok(result) => match result.fd {
+                0 => break,
+                1 => print!("{}", result.line),
+                2 => eprint!("{}", result.line),
+                _ => {
+                    eprintln!("Unknown result: {:?}", result);
                 }
-                if v["error"].is_null() {
-                    ret = v["exit_code"].as_i64().unwrap() as i32;
-                } else {
-                    eprintln!("Error: {}", v["error"]);
-                    ret = 3;
-                }
-                break;
+            },
+        }
+    });
+    let exit_code = match client.run_realtime(tx.clone()) {
+        Err(e) => {
+            eprintln!("ClientError: {}", e);
+            3
+        }
+        Ok(ret) => {
+            if args.detail {
+                eprintln!("{}", "=".repeat(40));
+                eprintln!("{}", serde_json::to_string_pretty(&ret).unwrap());
             }
-            1 => print!("{}", result.line),
-            2 => eprint!("{}", result.line),
-            _ => {
-                eprintln!("Unknown result: {:?}", result);
-                break;
+            match ret.error {
+                None => ret.exit_code.unwrap(),
+                Some(err) => {
+                    eprintln!("ServerError: {}", err);
+                    3
+                }
             }
         }
-    }
-    ret
+    };
+    tx.send(It {
+        fd: 0,
+        line: "".to_string(),
+    })
+    .unwrap_or_else(|_| {
+        eprintln!("Printer Unexpectedly Exited!",);
+    });
+    exit_code
 }
 
-fn print_multple_hosts_result(rx: Receiver<webclient::It>) -> BTreeMap<String, i32> {
-    let mut metas: BTreeMap<String, i32> = BTreeMap::new();
-    let mut output: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    loop {
-        let result = rx.recv().unwrap_or_else(|_| webclient::It {
-            host: "".to_string(),
-            fd: 0,
-            line: result::CommandResult::err("All finished".to_string()).to_json(),
+fn run_parallel(args: ClientArgs) -> i32 {
+    let mut children = Vec::new();
+    let (tx, rx) = mpsc::channel::<(String, CommandResult)>();
+
+    for host in args.host.split(",") {
+        let host = host.to_string();
+        let tx = tx.clone();
+        let client = Client::new(
+            host.clone(),
+            args.port,
+            args.command.clone(),
+            args.arguments.clone(),
+        );
+
+        let child = thread::spawn(move || match client.run_command() {
+            Ok(ret) => tx.send((host, ret)).unwrap(),
+            Err(e) => tx
+                .send((host, CommandResult::err(format!("ClientError: {}", e))))
+                .unwrap(),
         });
-        if result.host == "" {
+        children.push(child);
+    }
+
+    let mut count = 0;
+    let mut metas: HashMap<String, i32> = HashMap::new();
+    loop {
+        if count == children.len() {
             break;
         }
-        match result.fd {
-            0 => {
-                let v: serde_json::Value = serde_json::from_str(result.line.as_str()).unwrap();
-                println!(">>>>> {} <<<<<", &result.host);
-                if let Some(o) = output.get_mut(&result.host) {
-                    for l in o {
-                        print!("{}", l);
+        match rx.recv() {
+            Err(_) => eprintln!("Recv Error!"),
+            Ok((host, ret)) => {
+                count += 1;
+                println!(">>>>> {} <<<<<", host);
+                match ret.error {
+                    Some(err) => {
+                        println!(">>>>> {} returns error: <<<<<", host);
+                        eprint!("{}", err);
+                        metas.insert(host, 3);
                     }
-                }
-                let exit_code: i32;
-                if v["error"].is_null() {
-                    exit_code = v["exit_code"].as_i64().unwrap() as i32;
-                    println!(">>>>> {} returns {} <<<<<", result.host, exit_code);
-                } else {
-                    println!(">>>>> {} returns error: <<<<<", result.host);
-                    eprint!("{}", v["error"]);
-                    exit_code = -1;
-                }
+                    None => {
+                        print!("{}", ret.stdout.unwrap());
+                        eprint!("{}", ret.stderr.unwrap());
+                        println!(">>>>> {} returns {} <<<<<", host, ret.exit_code.unwrap());
+                        metas.insert(host, ret.exit_code.unwrap());
+                    }
+                };
                 print!("\n----------------------------------------\n");
-                metas.insert(result.host, exit_code);
-            }
-            1 | 2 => {
-                if let Some(o) = output.get_mut(&result.host) {
-                    o.push(result.line);
-                } else {
-                    output.insert(result.host, vec![result.line]);
-                }
-            }
-            _ => {
-                eprintln!("Unknown result: {:?}", result);
-                break;
             }
         }
     }
-    let bad_hosts: BTreeMap<String, i32> = metas
+
+    for child in children {
+        child.join().unwrap();
+    }
+
+    let bad_hosts: HashMap<String, i32> = metas
         .iter()
         .filter(|(_, exit_code)| **exit_code != 0)
         .map(|(host, exit_code)| ((*host).to_string().clone(), *exit_code))
@@ -147,9 +158,14 @@ fn print_multple_hosts_result(rx: Receiver<webclient::It>) -> BTreeMap<String, i
     );
     if bad_hosts.len() > 0 {
         println!("There is something wrong with these hosts:");
-        for (host, exit_code) in &bad_hosts {
+        for (host, exit_code) in bad_hosts {
             println!("{}: {}", host, exit_code);
         }
     }
-    metas
+
+    if metas.iter().all(|(_, exit_code)| *exit_code == 0) {
+        0
+    } else {
+        1
+    }
 }

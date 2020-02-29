@@ -74,9 +74,11 @@ impl Command {
                 .replace_all(arg, |caps: &Captures| match caps.get(1) {
                     None => "".to_string(),
                     Some(c) => {
-                        let idx = c.as_str().parse::<usize>()?;
-                        //.or(Err(anyhow!("Illegal Argument Index: {}", c)));//.ok_or(0).map_err(|_| );
-                        arguments[idx].clone()
+                        match c.as_str().parse::<usize>() {
+                            // NOTE: use empty string if parse arg idx error
+                            Err(_) => "".to_string(),
+                            Ok(idx) => arguments[idx].clone(),
+                        }
                     }
                 })
                 .into_owned();
@@ -213,8 +215,8 @@ pub fn read_config(config_file: &str) -> Result<Configs> {
     let mut cmds: Configs = HashMap::new();
 
     if p.is_dir() {
-        let dir = p
-            .join("*")
+        let d = p.join("*");
+        let dir = d
             .to_str()
             .ok_or(0)
             .map_err(|_| anyhow!("Config dir error"))?;

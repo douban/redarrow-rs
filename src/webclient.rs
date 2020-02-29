@@ -1,20 +1,18 @@
 use std::str;
 use std::sync::atomic::{AtomicI8, Ordering};
-use std::sync::mpsc::Sender;
-use std::thread;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::Result;
 use curl::easy::Easy;
 use url::form_urlencoded;
 
-use crate::result;
+use crate::result::CommandResult;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub struct It {
-    pub host: String,
     pub fd: i8,
     pub line: String,
 }
@@ -49,10 +47,6 @@ impl Client {
         self.connect_timeout = timeout;
     }
 
-    pub fn is_multi_host(self: &Self) -> bool {
-        self.host.contains(",")
-    }
-
     fn build_url(self: &Self, chunked: bool) -> String {
         let mut param_builder = form_urlencoded::Serializer::new(String::new());
         if chunked {
@@ -68,7 +62,7 @@ impl Client {
         )
     }
 
-    pub fn run_command(self: &Self) -> Result<result::CommandResult> {
+    pub fn run_command(self: &Self) -> Result<CommandResult> {
         let mut dst = Vec::new();
         let mut easy = Easy::new();
         easy.useragent(self.user_agent.as_str())?;
@@ -82,70 +76,55 @@ impl Client {
             })?;
             transfer.perform()?;
         }
-        let body = String::from_utf8(dst)?;
-        let ret: result::CommandResult = serde_json::from_str(body.as_str())?;
-        Ok(ret)
+        Ok(serde_json::from_slice(&dst)?)
     }
 
-    pub fn run_realtime(self: &Self, tx: Sender<It>) {
+    pub fn run_realtime(self: &Self, tx: mpsc::Sender<It>) -> Result<CommandResult> {
         let mut easy = Easy::new();
-        easy.useragent(self.user_agent.as_str()).unwrap();
-        easy.connect_timeout(self.connect_timeout).unwrap();
-        easy.url(self.build_url(true).as_str()).unwrap();
-        let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
-        let mut tmp = "".to_string();
-        {
-            let mut transfer = easy.transfer();
-            transfer
-                .write_function(|data| {
-                    let v = str::from_utf8(data).unwrap();
-                    tmp.push_str(v);
-                    if v.ends_with("\n") {
-                        let (mut fd, line) = parse_chunk(tmp.as_str());
-                        if fd < 0 {
-                            fd = last_fd.load(Ordering::SeqCst);
-                        } else {
-                            last_fd.store(fd, Ordering::SeqCst);
-                        }
-                        tx.send(It {
-                            host: self.host.clone(),
-                            fd: fd,
-                            line: line.to_string(),
-                        })
-                        .unwrap();
-                        tmp.clear();
-                    }
-                    Ok(data.len())
-                })
-                .unwrap();
-            transfer.perform().unwrap_or_else(|e| {
-                tx.send(It {
-                    host: self.host.clone(),
-                    fd: 0,
-                    line: result::CommandResult::err(format!("{}", e)).to_json(),
-                })
-                .unwrap();
-            })
-        }
-    }
+        easy.useragent(self.user_agent.as_str())?;
+        easy.connect_timeout(self.connect_timeout)?;
+        easy.url(self.build_url(true).as_str())?;
 
-    pub fn run_parallel(self: &Self, tx: Sender<It>) {
-        let hosts: Vec<&str> = self.host.split(",").collect();
-        let mut children = Vec::new();
-        for host in hosts {
-            let client = Client::new(
-                host.to_string(),
-                self.port,
-                self.command.clone(),
-                self.arguments.clone(),
-            );
-            let tx = tx.clone();
-            let child = thread::spawn(move || client.run_realtime(tx));
-            children.push(child);
+        let mut ret = "".to_string();
+        {
+            let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
+            let mut tmp = Vec::new();
+
+            let mut transfer = easy.transfer();
+            transfer.write_function(|data| {
+                match data.last() {
+                    None => {
+                        return Ok(0);
+                    }
+                    Some(char) => {
+                        tmp.extend_from_slice(data);
+                        if *char != b'\n' {
+                            return Ok(data.len());
+                        }
+                    }
+                }
+                let (mut fd, line) = parse_chunk(str::from_utf8(data).unwrap());
+                if fd == 0 {
+                    ret.push_str(line);
+                    return Ok(data.len());
+                }
+                if fd == -1 {
+                    fd = last_fd.load(Ordering::SeqCst);
+                } else {
+                    last_fd.store(fd, Ordering::SeqCst);
+                }
+                tx.send(It {
+                    fd: fd,
+                    line: line.to_string(),
+                })
+                .unwrap();
+                tmp.clear();
+                Ok(data.len())
+            })?;
+            transfer.perform()?;
         }
-        for child in children {
-            child.join().unwrap();
-        }
+
+        Ok(serde_json::from_str(ret.as_str())?)
     }
 }
 
