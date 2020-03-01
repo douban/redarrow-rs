@@ -5,7 +5,7 @@ use std::thread;
 use argh::FromArgs;
 
 use redarrow::result::CommandResult;
-use redarrow::webclient::{Client, It};
+use redarrow::webclient::Client;
 
 #[argh(description = "execute remote command from a redarrow server")]
 #[derive(FromArgs, Debug)]
@@ -47,17 +47,17 @@ fn main() {
 fn run_single(args: ClientArgs) -> i32 {
     let mut client = Client::new(args.host, args.port, args.command, args.arguments);
     client.set_user_agent("Redarrow-client");
-    let (tx, rx) = mpsc::channel::<It>();
+    let (tx, rx) = mpsc::channel::<(i8, String)>();
     // NOTE: will not join this thread
     let _child = thread::spawn(move || loop {
         match rx.recv() {
             Err(_) => eprintln!("Recv Error!"),
-            Ok(result) => match result.fd {
+            Ok((fd, line)) => match fd {
                 0 => break,
-                1 => print!("{}", result.line),
-                2 => eprint!("{}", result.line),
+                1 => print!("{}", line),
+                2 => eprint!("{}", line),
                 _ => {
-                    eprintln!("Unknown result: {:?}", result);
+                    eprintln!("Unknown result: {}-{}", fd, line);
                 }
             },
         }
@@ -81,11 +81,7 @@ fn run_single(args: ClientArgs) -> i32 {
             }
         }
     };
-    tx.send(It {
-        fd: 0,
-        line: "".to_string(),
-    })
-    .unwrap_or_else(|_| {
+    tx.send((0, "".to_string())).unwrap_or_else(|_| {
         eprintln!("Printer Unexpectedly Exited!",);
     });
     exit_code
