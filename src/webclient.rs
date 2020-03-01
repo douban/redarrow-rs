@@ -106,6 +106,7 @@ impl Client {
                 let (mut fd, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
                 if fd == 0 {
                     ret.push_str(line);
+                    tmp.clear();
                     return Ok(data.len());
                 }
                 if fd == -1 {
