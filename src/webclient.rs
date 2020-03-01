@@ -122,7 +122,11 @@ impl Client {
             transfer.perform()?;
         }
 
-        Ok(serde_json::from_str(ret.as_str())?)
+        if ret == "" {
+            Ok(CommandResult::err("Command Unfinished".to_string()))
+        } else {
+            Ok(serde_json::from_str(ret.as_str())?)
+        }
     }
 }
 
