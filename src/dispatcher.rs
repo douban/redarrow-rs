@@ -73,13 +73,13 @@ impl Command {
             let a = re
                 .replace_all(arg, |caps: &Captures| match caps.get(1) {
                     None => "".to_string(),
-                    Some(c) => {
-                        match c.as_str().parse::<usize>() {
-                            // NOTE: use empty string if parse arg idx error
-                            Err(_) => "".to_string(),
-                            Ok(idx) => arguments[idx].clone(),
+                    Some(c) => match c.as_str().parse::<usize>() {
+                        Err(_) => {
+                            log::warn!("parse arg index error for {}: {}", self.name, arg,);
+                            "".to_string()
                         }
-                    }
+                        Ok(idx) => arguments[idx].clone(),
+                    },
                 })
                 .into_owned();
             args.push(a.trim_matches('"').trim_matches('\'').to_string());
