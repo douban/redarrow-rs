@@ -103,7 +103,7 @@ impl Client {
                         }
                     }
                 }
-                let (mut fd, line) = parse_chunk(str::from_utf8(data).unwrap());
+                let (mut fd, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
                 if fd == 0 {
                     ret.push_str(line);
                     return Ok(data.len());
