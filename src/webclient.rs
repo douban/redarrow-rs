@@ -91,33 +91,46 @@ impl Client {
 
             let mut transfer = easy.transfer();
             transfer.write_function(|data| {
+                let mut line_ends = false;
                 match data.last() {
                     None => {
                         return Ok(0);
                     }
                     Some(char) => {
-                        tmp.extend_from_slice(data);
-                        if *char != b'\n' {
-                            return Ok(data.len());
+                        if *char == b'\n' {
+                            line_ends = true;
                         }
                     }
                 }
-                let (mut fd, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
-                if fd == 0 {
-                    ret.push_str(line);
+                if last_fd >= 0 {
+                    tmp.extend_from_slice(data);
+                    if line_ends {
+                        let (_, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
+                        tx.send(It {
+                            fd: last_fd,
+                            line: line.to_string(),
+                        })
+                        .unwrap();
+                        last_fd = -1;
+                        tmp.clear();
+                    }
                 } else {
-                    if fd == -1 {
-                        fd = last_fd;
+                    let (fd, line) = parse_chunk(str::from_utf8(&data).unwrap());
+                    if line_ends {
+                        if fd == 0 {
+                            ret.push_str(line);
+                        } else {
+                            tx.send(It {
+                                fd: fd,
+                                line: line.to_string(),
+                            })
+                            .unwrap();
+                        }
                     } else {
+                        tmp.extend_from_slice(data);
                         last_fd = fd;
                     }
-                    tx.send(It {
-                        fd: fd,
-                        line: line.to_string(),
-                    })
-                    .unwrap();
                 }
-                tmp.clear();
                 Ok(data.len())
             })?;
             transfer.perform()?;
