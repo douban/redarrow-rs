@@ -45,7 +45,8 @@ fn main() {
 }
 
 fn run_single(args: ClientArgs) -> i32 {
-    let client = Client::new(args.host, args.port, args.command, args.arguments);
+    let mut client = Client::new(args.host, args.port, args.command, args.arguments);
+    client.set_user_agent("Redarrow-client");
     let (tx, rx) = mpsc::channel::<It>();
     // NOTE: will not join this thread
     let _child = thread::spawn(move || loop {
@@ -97,12 +98,13 @@ fn run_parallel(args: ClientArgs) -> i32 {
     for host in args.host.split(",") {
         let host = host.to_string();
         let tx = tx.clone();
-        let client = Client::new(
+        let mut client = Client::new(
             host.clone(),
             args.port,
             args.command.clone(),
             args.arguments.clone(),
         );
+        client.set_user_agent("Redarrow-client");
 
         let child = thread::spawn(move || match client.run_command() {
             Ok(ret) => tx.send((host, ret)).unwrap(),

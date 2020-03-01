@@ -114,7 +114,8 @@ fn main() {
 
     let ret: result::CommandResult;
 
-    let client = webclient::Client::new(args.host, 4205, args.command, arguments);
+    let mut client = webclient::Client::new(args.host, 4205, args.command, arguments);
+    client.set_user_agent("Redarrow-check");
     let result = client.run_command();
     match result {
         Ok(v) => {
