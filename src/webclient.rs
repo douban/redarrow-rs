@@ -11,12 +11,6 @@ use crate::result::CommandResult;
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
-pub struct It {
-    pub fd: i8,
-    pub line: String,
-}
-
-#[derive(Debug)]
 pub struct Client {
     host: String,
     port: u32,
@@ -78,7 +72,7 @@ impl Client {
         Ok(serde_json::from_slice(&dst)?)
     }
 
-    pub fn run_realtime(self: &Self, tx: mpsc::Sender<It>) -> Result<CommandResult> {
+    pub fn run_realtime(self: &Self, tx: mpsc::Sender<(i8, String)>) -> Result<CommandResult> {
         let mut easy = Easy::new();
         easy.useragent(self.user_agent.as_str())?;
         easy.connect_timeout(self.connect_timeout)?;
@@ -106,11 +100,7 @@ impl Client {
                     tmp.extend_from_slice(data);
                     if line_ends {
                         let (_, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
-                        tx.send(It {
-                            fd: last_fd,
-                            line: line.to_string(),
-                        })
-                        .unwrap();
+                        tx.send((last_fd, line.to_string())).unwrap();
                         last_fd = -1;
                         tmp.clear();
                     }
@@ -120,11 +110,7 @@ impl Client {
                         if fd == 0 {
                             ret.push_str(line);
                         } else {
-                            tx.send(It {
-                                fd: fd,
-                                line: line.to_string(),
-                            })
-                            .unwrap();
+                            tx.send((fd, line.to_string())).unwrap();
                         }
                     } else {
                         tmp.extend_from_slice(data);
