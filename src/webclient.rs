@@ -1,5 +1,4 @@
 use std::str;
-use std::sync::atomic::{AtomicI8, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -87,38 +86,51 @@ impl Client {
 
         let mut ret = "".to_string();
         {
-            let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
+            let mut last_fd = -1;
             let mut tmp = Vec::new();
 
             let mut transfer = easy.transfer();
             transfer.write_function(|data| {
+                let mut line_ends = false;
                 match data.last() {
                     None => {
                         return Ok(0);
                     }
                     Some(char) => {
-                        tmp.extend_from_slice(data);
-                        if *char != b'\n' {
-                            return Ok(data.len());
+                        if *char == b'\n' {
+                            line_ends = true;
                         }
                     }
                 }
-                let (mut fd, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
-                if fd == 0 {
-                    ret.push_str(line);
-                } else {
-                    if fd == -1 {
-                        fd = last_fd.load(Ordering::SeqCst);
-                    } else {
-                        last_fd.store(fd, Ordering::SeqCst);
+                if last_fd >= 0 {
+                    tmp.extend_from_slice(data);
+                    if line_ends {
+                        let (_, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
+                        tx.send(It {
+                            fd: last_fd,
+                            line: line.to_string(),
+                        })
+                        .unwrap();
+                        last_fd = -1;
+                        tmp.clear();
                     }
-                    tx.send(It {
-                        fd: fd,
-                        line: line.to_string(),
-                    })
-                    .unwrap();
+                } else {
+                    let (fd, line) = parse_chunk(str::from_utf8(&data).unwrap());
+                    if line_ends {
+                        if fd == 0 {
+                            ret.push_str(line);
+                        } else {
+                            tx.send(It {
+                                fd: fd,
+                                line: line.to_string(),
+                            })
+                            .unwrap();
+                        }
+                    } else {
+                        tmp.extend_from_slice(data);
+                        last_fd = fd;
+                    }
                 }
-                tmp.clear();
                 Ok(data.len())
             })?;
             transfer.perform()?;
