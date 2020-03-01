@@ -1,5 +1,4 @@
 use std::str;
-use std::sync::atomic::{AtomicI8, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -87,7 +86,7 @@ impl Client {
 
         let mut ret = "".to_string();
         {
-            let last_fd = std::sync::Arc::new(AtomicI8::new(-1));
+            let mut last_fd = -1;
             let mut tmp = Vec::new();
 
             let mut transfer = easy.transfer();
@@ -108,9 +107,9 @@ impl Client {
                     ret.push_str(line);
                 } else {
                     if fd == -1 {
-                        fd = last_fd.load(Ordering::SeqCst);
+                        fd = last_fd;
                     } else {
-                        last_fd.store(fd, Ordering::SeqCst);
+                        last_fd = fd;
                     }
                     tx.send(It {
                         fd: fd,
