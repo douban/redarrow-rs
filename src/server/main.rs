@@ -150,7 +150,10 @@ fn handle_command_chunked(
             actix_rt::spawn(async move {
                 loop {
                     match rx_cmd.recv() {
-                        Err(_) => break,
+                        Err(e) => {
+                            log::warn!("recv output error: {}", e);
+                            break;
+                        },
                         Ok(result) => {
                             if result == "\0" {
                                 break;
