@@ -47,17 +47,17 @@ fn main() {
 fn run_single(args: ClientArgs) -> i32 {
     let mut client = Client::new(args.host, args.port, args.command, args.arguments);
     client.set_user_agent("Redarrow-client");
-    let (tx, rx) = mpsc::channel::<(i8, String)>();
+    let (tx, rx) = mpsc::channel::<(i8, Vec<u8>)>();
     // NOTE: will not join this thread
     let _child = thread::spawn(move || loop {
         match rx.recv() {
             Err(_) => eprintln!("Recv Error!"),
             Ok((fd, line)) => match fd {
                 0 => break,
-                1 => print!("{}", line),
-                2 => eprint!("{}", line),
+                1 => print!("{}", String::from_utf8_lossy(&line)),
+                2 => eprint!("{}", String::from_utf8_lossy(&line)),
                 _ => {
-                    eprintln!("Unknown result: {}-{}", fd, line);
+                    eprintln!("Unknown result: {}-{}", fd, String::from_utf8_lossy(&line));
                 }
             },
         }
@@ -81,7 +81,7 @@ fn run_single(args: ClientArgs) -> i32 {
             }
         }
     };
-    tx.send((0, "".to_string())).unwrap_or_else(|_| {
+    tx.send((0, Vec::new())).unwrap_or_else(|_| {
         eprintln!("Printer Unexpectedly Exited!",);
     });
     exit_code

@@ -153,12 +153,13 @@ fn handle_command_chunked(
                         Err(e) => {
                             log::warn!("recv output error: {}", e);
                             break;
-                        },
+                        }
                         Ok(result) => {
                             if result == "\0" {
                                 break;
                             }
                             if tx_body.send(Ok(Bytes::from(result))).is_err() {
+                                log::warn!("send body error, maybe connection closed");
                                 break;
                             };
                             // HACK:(everpcpc) wait 1ns to send
@@ -176,10 +177,12 @@ fn handle_command_chunked(
                         .to_json()
                 );
                 if tx_cmd.send(ret).is_err() {
+                    log::warn!("send command result error, maybe connection closed");
                     return;
                 }
                 // HACK:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
                 if tx_cmd.send("\0".to_string()).is_err() {
+                    log::warn!("send command end error, maybe connection closed");
                     return;
                 }
             });
