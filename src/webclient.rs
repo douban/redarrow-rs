@@ -109,14 +109,14 @@ impl Client {
                     let fd = parse_fd(data);
                     if line_ends {
                         if fd == 0 {
-                            ret.extend_from_slice(&data[2..]);
+                            ret.extend_from_slice(&data[3..]);
                         } else {
-                            if tx.send((fd, data[2..].to_vec())).is_err() {
+                            if tx.send((fd, data[3..].to_vec())).is_err() {
                                 eprintln!("ClientError: send result to std failed")
                             };
                         }
                     } else {
-                        tmp.extend_from_slice(&data[2..]);
+                        tmp.extend_from_slice(&data[3..]);
                         last_fd = fd;
                     }
                 }
