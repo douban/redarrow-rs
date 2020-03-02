@@ -99,7 +99,7 @@ impl Client {
                 if last_fd >= 0 {
                     tmp.extend_from_slice(data);
                     if line_ends {
-                        if tx.send((last_fd, tmp[2..].to_vec())).is_err() {
+                        if tx.send((last_fd, tmp.clone())).is_err() {
                             eprintln!("ClientError: send result to std failed")
                         };
                         last_fd = -1;
@@ -116,7 +116,7 @@ impl Client {
                             };
                         }
                     } else {
-                        tmp.extend_from_slice(data);
+                        tmp.extend_from_slice(&data[2..]);
                         last_fd = fd;
                     }
                 }
