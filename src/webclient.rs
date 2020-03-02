@@ -72,13 +72,13 @@ impl Client {
         Ok(serde_json::from_slice(&dst)?)
     }
 
-    pub fn run_realtime(self: &Self, tx: mpsc::Sender<(i8, String)>) -> Result<CommandResult> {
+    pub fn run_realtime(self: &Self, tx: mpsc::Sender<(i8, Vec<u8>)>) -> Result<CommandResult> {
         let mut easy = Easy::new();
         easy.useragent(self.user_agent.as_str())?;
         easy.connect_timeout(self.connect_timeout)?;
         easy.url(self.build_url(true).as_str())?;
 
-        let mut ret = "".to_string();
+        let mut ret: Vec<u8> = Vec::new();
         {
             let mut last_fd = -1;
             let mut tmp = Vec::new();
@@ -99,21 +99,24 @@ impl Client {
                 if last_fd >= 0 {
                     tmp.extend_from_slice(data);
                     if line_ends {
-                        let (_, line) = parse_chunk(str::from_utf8(&tmp).unwrap());
-                        tx.send((last_fd, line.to_string())).unwrap();
+                        if tx.send((last_fd, tmp.clone())).is_err() {
+                            eprintln!("ClientError: send result to std failed")
+                        };
                         last_fd = -1;
                         tmp.clear();
                     }
                 } else {
-                    let (fd, line) = parse_chunk(str::from_utf8(&data).unwrap());
+                    let fd = parse_fd(data);
                     if line_ends {
                         if fd == 0 {
-                            ret.push_str(line);
+                            ret.extend_from_slice(&data[2..]);
                         } else {
-                            tx.send((fd, line.to_string())).unwrap();
+                            if tx.send((fd, data[2..].to_vec())).is_err() {
+                                eprintln!("ClientError: send result to std failed")
+                            };
                         }
                     } else {
-                        tmp.extend_from_slice(data);
+                        tmp.extend_from_slice(&data[2..]);
                         last_fd = fd;
                     }
                 }
@@ -122,22 +125,24 @@ impl Client {
             transfer.perform()?;
         }
 
-        if ret == "" {
+        if ret.len() == 0 {
             Ok(CommandResult::err("Command Unfinished".to_string()))
         } else {
-            Ok(serde_json::from_str(ret.as_str())?)
+            Ok(serde_json::from_slice(&ret)?)
         }
     }
 }
 
-fn parse_chunk(s: &str) -> (i8, &str) {
-    if s.starts_with("0> ") {
-        (0, s.trim_start_matches("0> "))
-    } else if s.starts_with("1> ") {
-        (1, s.trim_start_matches("1> "))
-    } else if s.starts_with("2> ") {
-        (2, s.trim_start_matches("2> "))
+fn parse_fd(s: &[u8]) -> i8 {
+    if s.len() < 3 {
+        -1
     } else {
-        (-1, s)
+        let (left, _) = s.split_at(3);
+        match left {
+            b"0> " => 0,
+            b"1> " => 1,
+            b"2> " => 2,
+            _ => -1,
+        }
     }
 }
