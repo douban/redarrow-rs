@@ -72,21 +72,24 @@ async fn main() -> std::io::Result<()> {
     .run();
 
     let srv = server.clone();
-    std::thread::spawn(move || loop {
-        let sig = rx.recv().unwrap_or("");
-        match sig {
-            "TERM" => {
-                // stop server gracefully
-                executor::block_on(srv.stop(true));
-                break;
+    std::thread::Builder::new()
+        .name("signal receiver".to_string())
+        .spawn(move || loop {
+            let sig = rx.recv().unwrap_or("");
+            match sig {
+                "TERM" => {
+                    // stop server gracefully
+                    executor::block_on(srv.stop(true));
+                    break;
+                }
+                "HUP" => {}
+                _ => {
+                    // wait 10ms if recv error
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
             }
-            "HUP" => {}
-            _ => {
-                // wait 10ms if recv error
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-        }
-    });
+        })
+        .unwrap();
 
     let mut stream_hup = signal(SignalKind::hangup())?;
     let hup_tx = tx.clone();
@@ -169,23 +172,26 @@ fn handle_command_chunked(
                 }
             });
             let cmd = cmd.clone();
-            std::thread::spawn(move || {
-                let ret = format!(
-                    "0> {}\n",
-                    cmd.execute_iter(arguments, tx_cmd.clone())
-                        .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)))
-                        .to_json()
-                );
-                if tx_cmd.send(ret).is_err() {
-                    log::warn!("send command result error, maybe connection closed");
-                    return;
-                }
-                // HACK:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
-                if tx_cmd.send("\0".to_string()).is_err() {
-                    log::warn!("send command end error, maybe connection closed");
-                    return;
-                }
-            });
+            std::thread::Builder::new()
+                .name(format!("runner for {}", command))
+                .spawn(move || {
+                    let ret = format!(
+                        "0> {}\n",
+                        cmd.execute_iter(arguments, tx_cmd.clone())
+                            .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)))
+                            .to_json()
+                    );
+                    if tx_cmd.send(ret).is_err() {
+                        log::warn!("send command result error, maybe connection closed");
+                        return;
+                    }
+                    // HACK:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
+                    if tx_cmd.send("\0".to_string()).is_err() {
+                        log::warn!("send command end error, maybe connection closed");
+                        return;
+                    }
+                })
+                .unwrap();
             HttpResponse::Ok().streaming(rx_body)
         }
     }
