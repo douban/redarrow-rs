@@ -88,7 +88,8 @@ impl Client {
                 let mut line_ends = false;
                 match data.last() {
                     None => {
-                        return Ok(0);
+                        eprintln!("Nothing received");
+                        return Ok(data.len());
                     }
                     Some(char) => {
                         if *char == b'\n' {
