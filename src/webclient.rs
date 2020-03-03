@@ -88,7 +88,7 @@ impl Client {
                 let mut line_ends = false;
                 match data.last() {
                     None => {
-                        eprintln!("Nothing received");
+                        eprintln!("UnkownError: nothing received");
                         return Ok(data.len());
                     }
                     Some(char) => {
