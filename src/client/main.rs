@@ -49,19 +49,21 @@ fn run_single(args: ClientArgs) -> i32 {
     client.set_user_agent("Redarrow-client");
     let (tx, rx) = mpsc::channel::<(i8, Vec<u8>)>();
     // NOTE: will not join this thread
-    let _child = thread::spawn(move || loop {
-        match rx.recv() {
-            Err(_) => eprintln!("Recv Error!"),
-            Ok((fd, line)) => match fd {
-                0 => break,
-                1 => print!("{}", String::from_utf8_lossy(&line)),
-                2 => eprint!("{}", String::from_utf8_lossy(&line)),
-                _ => {
-                    eprintln!("Unknown result: {}-{}", fd, String::from_utf8_lossy(&line));
-                }
-            },
-        }
-    });
+    let _child = thread::Builder::new()
+        .name("output printer".to_string())
+        .spawn(move || loop {
+            match rx.recv() {
+                Err(_) => eprintln!("Recv Error!"),
+                Ok((fd, line)) => match fd {
+                    0 => break,
+                    1 => print!("{}", String::from_utf8_lossy(&line)),
+                    2 => eprint!("{}", String::from_utf8_lossy(&line)),
+                    _ => {
+                        eprintln!("Unknown result: {}-{}", fd, String::from_utf8_lossy(&line));
+                    }
+                },
+            }
+        });
     let exit_code = match client.run_realtime(tx.clone()) {
         Err(e) => {
             eprintln!("ClientError: {}", e);
@@ -73,7 +75,7 @@ fn run_single(args: ClientArgs) -> i32 {
                 eprintln!("{}", serde_json::to_string_pretty(&ret).unwrap());
             }
             match ret.error {
-                None => ret.exit_code.unwrap(),
+                None => ret.exit_code.unwrap_or(-2),
                 Some(err) => {
                     eprintln!("ServerError: {}", err);
                     3
@@ -102,12 +104,15 @@ fn run_parallel(args: ClientArgs) -> i32 {
         );
         client.set_user_agent("Redarrow-client");
 
-        let child = thread::spawn(move || match client.run_command() {
-            Ok(ret) => tx.send((host, ret)).unwrap(),
-            Err(e) => tx
-                .send((host, CommandResult::err(format!("ClientError: {}", e))))
-                .unwrap(),
-        });
+        let child = thread::Builder::new()
+            .name(format!("runner on {}", host))
+            .spawn(move || match client.run_command() {
+                Ok(ret) => tx.send((host, ret)).unwrap(),
+                Err(e) => tx
+                    .send((host, CommandResult::err(format!("ClientError: {}", e))))
+                    .unwrap(),
+            })
+            .unwrap();
         children.push(child);
     }
 
@@ -129,10 +134,14 @@ fn run_parallel(args: ClientArgs) -> i32 {
                         metas.insert(host, 3);
                     }
                     None => {
-                        print!("{}", ret.stdout.unwrap());
-                        eprint!("{}", ret.stderr.unwrap());
-                        println!(">>>>> {} returns {} <<<<<", host, ret.exit_code.unwrap());
-                        metas.insert(host, ret.exit_code.unwrap());
+                        print!("{}", ret.stdout.unwrap_or("Error: stdout None".to_string()));
+                        eprint!("{}", ret.stderr.unwrap_or("Error: stderr None".to_string()));
+                        println!(
+                            ">>>>> {} returns {} <<<<<",
+                            host,
+                            ret.exit_code.unwrap_or(-2)
+                        );
+                        metas.insert(host, ret.exit_code.unwrap_or(-2));
                     }
                 };
                 print!("\n----------------------------------------\n");

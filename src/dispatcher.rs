@@ -143,7 +143,7 @@ impl Command {
 
         let start = SystemTime::now();
 
-        let mut child = process::Command::new(cmd)
+        let mut child = process::Command::new(&cmd)
             .args(args)
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
@@ -151,26 +151,30 @@ impl Command {
 
         let stdout_reader = BufReader::new(child.stdout.take().ok_or(anyhow!("stdout error"))?);
         let out_tx = tx.clone();
-        let stdout_child = thread::spawn(move || {
-            stdout_reader
-                .lines()
-                .filter_map(|line| line.ok())
-                .for_each(|line| match out_tx.send(format!("1> {}\n", line)) {
-                    Err(_) => log::warn!("error sending to stdout: {}", line),
-                    Ok(()) => {}
-                });
-        });
+        let stdout_child = thread::Builder::new()
+            .name(format!("stdout sender: {}", &cmd))
+            .spawn(move || {
+                stdout_reader
+                    .lines()
+                    .filter_map(|line| line.ok())
+                    .for_each(|line| match out_tx.send(format!("1> {}\n", line)) {
+                        Err(_) => log::warn!("error sending to stdout: {}", line),
+                        Ok(()) => {}
+                    });
+            })?;
         let stderr_reader = BufReader::new(child.stderr.take().ok_or(anyhow!("stderr error"))?);
         let err_tx = tx.clone();
-        let stderr_child = thread::spawn(move || {
-            stderr_reader
-                .lines()
-                .filter_map(|line| line.ok())
-                .for_each(|line| match err_tx.send(format!("2> {}\n", line)) {
-                    Err(_) => log::warn!("error sending to stderr: {}", line),
-                    Ok(()) => {}
-                });
-        });
+        let stderr_child = thread::Builder::new()
+            .name(format!("stderr sender: {}", &cmd))
+            .spawn(move || {
+                stderr_reader
+                    .lines()
+                    .filter_map(|line| line.ok())
+                    .for_each(|line| match err_tx.send(format!("2> {}\n", line)) {
+                        Err(_) => log::warn!("error sending to stderr: {}", line),
+                        Ok(()) => {}
+                    });
+            })?;
         let timeout = Duration::from_secs(self.time_limit);
         let status = child.wait_timeout(timeout)?;
 
