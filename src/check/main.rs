@@ -1,6 +1,7 @@
 use std::f64::{INFINITY, NEG_INFINITY};
 
 use argh::FromArgs;
+use tokio::runtime::Runtime;
 
 use redarrow::{result, webclient};
 
@@ -116,7 +117,8 @@ fn main() {
 
     let mut client = webclient::Client::new(args.host, 4205, args.command, arguments);
     client.set_user_agent("Redarrow-check");
-    let result = client.run_command();
+    let mut rt = Runtime::new().unwrap();
+    let result = rt.block_on(client.run_command());
     match result {
         Ok(v) => {
             ret = v;
