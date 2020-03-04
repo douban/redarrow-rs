@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use argh::FromArgs;
+use tokio::runtime::Runtime;
 
 use redarrow::result::CommandResult;
 use redarrow::webclient::Client;
@@ -40,7 +41,6 @@ fn main() {
     } else {
         exit_code = run_single(args);
     }
-
     std::process::exit(exit_code);
 }
 
@@ -64,7 +64,8 @@ fn run_single(args: ClientArgs) -> i32 {
                 },
             }
         });
-    let exit_code = match client.run_realtime(tx.clone()) {
+    let mut rt = Runtime::new().unwrap();
+    let exit_code = match rt.block_on(client.run_realtime(tx.clone())) {
         Err(e) => {
             eprintln!("ClientError: {}", e);
             3
@@ -103,10 +104,10 @@ fn run_parallel(args: ClientArgs) -> i32 {
             args.arguments.clone(),
         );
         client.set_user_agent("Redarrow-client");
-
+        let mut rt = Runtime::new().unwrap();
         let child = thread::Builder::new()
             .name(format!("runner on {}", host))
-            .spawn(move || match client.run_command() {
+            .spawn(move || match rt.block_on(client.run_command()) {
                 Ok(ret) => tx.send((host, ret)).unwrap(),
                 Err(e) => tx
                     .send((host, CommandResult::err(format!("ClientError: {}", e))))
@@ -116,10 +117,11 @@ fn run_parallel(args: ClientArgs) -> i32 {
         children.push(child);
     }
 
+    let total_jobs = children.len();
     let mut count = 0;
     let mut metas: HashMap<String, i32> = HashMap::new();
     loop {
-        if count == children.len() {
+        if count == total_jobs {
             break;
         }
         match rx.recv() {
