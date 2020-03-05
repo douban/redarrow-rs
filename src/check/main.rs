@@ -3,7 +3,8 @@ use std::f64::{INFINITY, NEG_INFINITY};
 use argh::FromArgs;
 use tokio::runtime::Runtime;
 
-use redarrow::{result, webclient};
+use redarrow::webclient::Client;
+use redarrow::CommandResult;
 
 /*
 Threshold format: [@]start:end
@@ -113,9 +114,9 @@ fn main() {
         Some(a) => a.split(" ").map(|x| x.to_string()).collect(),
     };
 
-    let ret: result::CommandResult;
+    let ret: CommandResult;
 
-    let mut client = webclient::Client::new(args.host, 4205, args.command, arguments);
+    let mut client = Client::new(args.host, 4205, args.command, arguments);
     client.set_user_agent("Redarrow-check");
     let mut rt = Runtime::new().unwrap();
     let result = rt.block_on(client.run_command());

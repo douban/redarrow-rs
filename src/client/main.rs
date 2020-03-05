@@ -5,8 +5,8 @@ use std::thread;
 use argh::FromArgs;
 use tokio::runtime::Runtime;
 
-use redarrow::result::CommandResult;
 use redarrow::webclient::Client;
+use redarrow::CommandResult;
 
 #[argh(description = "execute remote command from a redarrow server")]
 #[derive(FromArgs, Debug)]
