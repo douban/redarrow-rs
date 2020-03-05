@@ -30,7 +30,7 @@ pub struct Command {
 }
 
 impl Command {
-    fn new(name: &str, exec: &str, args: Vec<Regex>, time_limit: u64) -> Command {
+    fn new(name: &str, exec: &str, args: Vec<Regex>, time_limit: u64) -> Self {
         Command {
             name: name.to_string(),
             exec: exec.to_string(),
