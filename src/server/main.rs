@@ -156,7 +156,7 @@ fn handle_command_chunked(
             let waker = Arc::new(Mutex::new(RedarrowWaker::new()));
             let cmd = cmd.clone();
             let mut wake_sender = waker.clone();
-            std::thread::Builder::new()
+            match std::thread::Builder::new()
                 .name(format!("runner for {}", command))
                 .spawn(move || {
                     let ret = format!(
@@ -193,13 +193,15 @@ fn handle_command_chunked(
                             }
                         }
                     }
-                })
-                .unwrap();
-            let resp = ChunkedResponse {
-                rx: rx_cmd,
-                waker: waker,
-            };
-            HttpResponse::Ok().streaming(resp)
+                }) {
+                Ok(_) => HttpResponse::Ok().streaming(ChunkedResponse {
+                    rx: rx_cmd,
+                    waker: waker,
+                }),
+                Err(e) => HttpResponse::InternalServerError().json(result::CommandResult::err(
+                    format!("Failed to start task: {}", e),
+                )),
+            }
         }
     }
 }
