@@ -86,19 +86,42 @@ impl Client {
             .query(&params)
             .send()
             .await?;
+
+        let mut last_fd = -1;
+        let mut tmp: Vec<u8> = Vec::new();
         while let Some(chunk) = res.chunk().await? {
+            let mut line_ends = false;
+            match chunk.last() {
+                None => continue,
+                Some(char) => {
+                    if *char == b'\n' {
+                        line_ends = true;
+                    }
+                }
+            }
+            if last_fd >= 0 {
+                tmp.extend_from_slice(&chunk);
+                if line_ends {
+                    tx.send((last_fd, tmp.clone()))?;
+                    last_fd = -1;
+                    tmp.clear();
+                }
+                continue;
+            }
             let fd = parse_fd(&chunk);
+            if !line_ends {
+                tmp.extend_from_slice(&chunk[3..]);
+                last_fd = fd;
+                continue;
+            }
             if fd == 0 {
                 return Ok(serde_json::from_slice(&chunk[3..])?);
-            } else if fd == -1 {
-                return Ok(CommandResult::err(format!("Chunk error:{:?}", chunk)));
             } else {
                 tx.send((fd, chunk[3..].to_vec()))?;
             }
         }
         Ok(CommandResult::err("Command Unfinished".to_string()))
     }
-
 }
 
 fn parse_fd(s: &[u8]) -> i8 {
