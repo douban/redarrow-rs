@@ -15,7 +15,7 @@ use nix::unistd::Pid;
 use regex::{Captures, Regex};
 use wait_timeout::ChildExt;
 
-use crate::result::CommandResult;
+use crate::CommandResult;
 
 static RE_ARGS: &str = r"\$\{(\d+)\}";
 

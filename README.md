@@ -10,7 +10,7 @@ Execute commands on remote servers.
 
 ```rust
 let client = webclient::Client::new(host, 4205, command, arguments);
-let result = client.run_command();
+let result = client.run_command().await;
 ```
 
 ## run server

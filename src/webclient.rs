@@ -3,17 +3,10 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::Result;
-use serde::Serialize;
 
-use crate::result::CommandResult;
+use crate::{CommandParams, CommandResult};
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-
-#[derive(Serialize, Debug)]
-struct ClientParams {
-    chunked: Option<String>,
-    argument: Option<String>,
-}
 
 #[derive(Debug)]
 pub struct Client {
@@ -61,7 +54,7 @@ impl Client {
     }
 
     pub async fn run_command(self: &Self) -> Result<CommandResult> {
-        let params = ClientParams {
+        let params = CommandParams {
             chunked: None,
             argument: self.get_arguments(),
         };
@@ -82,7 +75,7 @@ impl Client {
         self: &Self,
         tx: mpsc::Sender<(i8, Vec<u8>)>,
     ) -> Result<CommandResult> {
-        let params = ClientParams {
+        let params = CommandParams {
             chunked: Some("1".to_string()),
             argument: self.get_arguments(),
         };

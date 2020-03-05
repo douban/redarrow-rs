@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
 
 use redarrow::dispatcher::{read_config, Configs, RedarrowWaker};
-use redarrow::result;
+use redarrow::CommandResult;
 
 #[argh(description = "execute command for remote redarrow client")]
 #[derive(FromArgs, Debug)]
@@ -149,7 +149,7 @@ fn handle_command_chunked(
     match configs.get(command) {
         None => HttpResponse::BadRequest().body(format!(
             "0> {}\n",
-            result::CommandResult::err(format!("Unknown Command: {}", command)).to_json()
+            CommandResult::err(format!("Unknown Command: {}", command)).to_json()
         )),
         Some(cmd) => {
             let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
@@ -162,7 +162,7 @@ fn handle_command_chunked(
                     let ret = format!(
                         "0> {}\n",
                         cmd.execute_iter(arguments, tx_cmd.clone(), &mut wake_sender)
-                            .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)))
+                            .unwrap_or_else(|err| CommandResult::err(format!("{}", err)))
                             .to_json()
                     );
                     match tx_cmd.send(ret) {
@@ -198,9 +198,8 @@ fn handle_command_chunked(
                     rx: rx_cmd,
                     waker: waker,
                 }),
-                Err(e) => HttpResponse::InternalServerError().json(result::CommandResult::err(
-                    format!("Failed to start task: {}", e),
-                )),
+                Err(e) => HttpResponse::InternalServerError()
+                    .json(CommandResult::err(format!("Failed to start task: {}", e))),
             }
         }
     }
@@ -213,13 +212,13 @@ fn handle_command_no_chunked(
 ) -> HttpResponse {
     match configs.get(command) {
         None => {
-            let err = result::CommandResult::err(format!("Unknown Command: {}", command));
+            let err = CommandResult::err(format!("Unknown Command: {}", command));
             HttpResponse::BadRequest().json(err)
         }
         Some(cmd) => {
             let r = cmd
                 .execute(arguments)
-                .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)));
+                .unwrap_or_else(|err| CommandResult::err(format!("{}", err)));
             HttpResponse::Ok().json(r)
         }
     }
