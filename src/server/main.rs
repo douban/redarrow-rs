@@ -235,8 +235,11 @@ impl Stream for ChunkedResponse {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.rx.try_recv() {
             Err(_) => {
-                let mut waker = self.waker.lock().unwrap();
-                waker.register(cx.waker());
+                if let Ok(mut waker) = self.waker.lock() {
+                    waker.register(cx.waker());
+                } else {
+                    log::warn!("register waker failed to get lock");
+                }
                 Poll::Pending
             }
             Ok(result) => {
