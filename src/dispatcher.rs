@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process;
+use std::sync::{Arc, Mutex};
+use std::task::Waker;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -138,6 +140,7 @@ impl Command {
         self: &Self,
         arguments: Vec<String>,
         tx: std::sync::mpsc::Sender<String>,
+        waker: &mut Arc<Mutex<RedarrowWaker>>,
     ) -> Result<CommandResult> {
         let (cmd, args) = self.get_command(arguments)?;
 
@@ -151,6 +154,7 @@ impl Command {
 
         let stdout_reader = BufReader::new(child.stdout.take().ok_or(anyhow!("stdout error"))?);
         let out_tx = tx.clone();
+        let out_waker = waker.clone();
         let stdout_child = thread::Builder::new()
             .name(format!("stdout sender: {}", &cmd))
             .spawn(move || {
@@ -159,11 +163,18 @@ impl Command {
                     .filter_map(|line| line.ok())
                     .for_each(|line| match out_tx.send(format!("1> {}\n", line)) {
                         Err(_) => log::warn!("error sending to stdout: {}", line),
-                        Ok(()) => {}
+                        Ok(()) => {
+                            if let Ok(mut waker) = out_waker.lock() {
+                                waker.wake();
+                            } else {
+                                log::warn!("waker on stdout failed to get lock");
+                            }
+                        }
                     });
             })?;
         let stderr_reader = BufReader::new(child.stderr.take().ok_or(anyhow!("stderr error"))?);
         let err_tx = tx.clone();
+        let err_waker = waker.clone();
         let stderr_child = thread::Builder::new()
             .name(format!("stderr sender: {}", &cmd))
             .spawn(move || {
@@ -172,7 +183,13 @@ impl Command {
                     .filter_map(|line| line.ok())
                     .for_each(|line| match err_tx.send(format!("2> {}\n", line)) {
                         Err(_) => log::warn!("error sending to stderr: {}", line),
-                        Ok(()) => {}
+                        Ok(()) => {
+                            if let Ok(mut waker) = err_waker.lock() {
+                                waker.wake();
+                            } else {
+                                log::warn!("waker on stderr failed to get lock");
+                            }
+                        }
                     });
             })?;
         let timeout = Duration::from_secs(self.time_limit);
@@ -280,6 +297,31 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         cmds.insert(name.to_string(), cmd);
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct RedarrowWaker {
+    waker: Option<Waker>,
+}
+
+impl RedarrowWaker {
+    pub fn new() -> Self {
+        RedarrowWaker { waker: None }
+    }
+    pub fn register(&mut self, waker: &Waker) {
+        match self.waker {
+            None => self.waker = Some(waker.clone()),
+            Some(_) => {}
+        }
+    }
+    pub fn wake(&mut self) -> bool {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[cfg(test)]

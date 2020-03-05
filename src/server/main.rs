@@ -1,11 +1,16 @@
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
 use argh::FromArgs;
 use bytes::Bytes;
 use futures::executor;
+use futures::Stream;
 use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
 
-use redarrow::dispatcher;
+use redarrow::dispatcher::{read_config, Configs, RedarrowWaker};
 use redarrow::result;
 
 #[argh(description = "execute command for remote redarrow client")]
@@ -48,7 +53,7 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     let args: ServerArgs = argh::from_env();
 
-    let configs = match dispatcher::read_config(args.config.as_str()) {
+    let configs = match read_config(args.config.as_str()) {
         Ok(c) => {
             log::info!("parsed {} commands, starting server...", &c.len());
             c
@@ -118,7 +123,7 @@ async fn main() -> std::io::Result<()> {
 async fn handlers_command(
     command: web::Path<String>,
     opts: web::Query<CommandOptions>,
-    configs: web::Data<dispatcher::Configs>,
+    configs: web::Data<Configs>,
 ) -> impl Responder {
     let chunked = match opts.chunked {
         None => false,
@@ -139,7 +144,7 @@ async fn handlers_command(
 fn handle_command_chunked(
     command: &str,
     arguments: Vec<String>,
-    configs: web::Data<dispatcher::Configs>,
+    configs: web::Data<Configs>,
 ) -> HttpResponse {
     match configs.get(command) {
         None => HttpResponse::BadRequest().body(format!(
@@ -147,52 +152,56 @@ fn handle_command_chunked(
             result::CommandResult::err(format!("Unknown Command: {}", command)).to_json()
         )),
         Some(cmd) => {
-            let (tx_body, rx_body) =
-                actix_utils::mpsc::channel::<Result<bytes::Bytes, actix_web::Error>>();
             let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
-            actix_rt::spawn(async move {
-                loop {
-                    match rx_cmd.recv() {
-                        Err(e) => {
-                            log::warn!("recv output error: {}", e);
-                            break;
-                        }
-                        Ok(result) => {
-                            if result == "\0" {
-                                break;
-                            }
-                            if tx_body.send(Ok(Bytes::from(result))).is_err() {
-                                log::warn!("send body error, maybe connection closed");
-                                break;
-                            };
-                            // HACK:(everpcpc) wait 1ns to send
-                            futures_timer::Delay::new(std::time::Duration::from_nanos(1)).await;
-                        }
-                    }
-                }
-            });
+            let waker = Arc::new(Mutex::new(RedarrowWaker::new()));
             let cmd = cmd.clone();
-            std::thread::Builder::new()
+            let mut wake_sender = waker.clone();
+            match std::thread::Builder::new()
                 .name(format!("runner for {}", command))
                 .spawn(move || {
                     let ret = format!(
                         "0> {}\n",
-                        cmd.execute_iter(arguments, tx_cmd.clone())
+                        cmd.execute_iter(arguments, tx_cmd.clone(), &mut wake_sender)
                             .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)))
                             .to_json()
                     );
-                    if tx_cmd.send(ret).is_err() {
-                        log::warn!("send command result error, maybe connection closed");
-                        return;
+                    match tx_cmd.send(ret) {
+                        Err(e) => {
+                            log::warn!("send command result error: {}", e);
+                            return;
+                        }
+                        Ok(()) => {
+                            if let Ok(mut waker) = wake_sender.lock() {
+                                waker.wake();
+                            } else {
+                                log::warn!("waker on command result failed to get lock");
+                            }
+                        }
                     }
-                    // HACK:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
-                    if tx_cmd.send("\0".to_string()).is_err() {
-                        log::warn!("send command end error, maybe connection closed");
-                        return;
+                    // NOTE:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
+                    match tx_cmd.send("\0".to_string()) {
+                        Err(e) => {
+                            log::warn!("send command end error: {}", e);
+                            return;
+                        }
+                        Ok(()) => {
+                            // NOTE:(everpcpc) acturally this wake always false
+                            if let Ok(mut waker) = wake_sender.lock() {
+                                waker.wake();
+                            } else {
+                                log::warn!("waker on command end failed to get lock");
+                            }
+                        }
                     }
-                })
-                .unwrap();
-            HttpResponse::Ok().streaming(rx_body)
+                }) {
+                Ok(_) => HttpResponse::Ok().streaming(ChunkedResponse {
+                    rx: rx_cmd,
+                    waker: waker,
+                }),
+                Err(e) => HttpResponse::InternalServerError().json(result::CommandResult::err(
+                    format!("Failed to start task: {}", e),
+                )),
+            }
         }
     }
 }
@@ -200,7 +209,7 @@ fn handle_command_chunked(
 fn handle_command_no_chunked(
     command: &str,
     arguments: Vec<String>,
-    configs: web::Data<dispatcher::Configs>,
+    configs: web::Data<Configs>,
 ) -> HttpResponse {
     match configs.get(command) {
         None => {
@@ -212,6 +221,36 @@ fn handle_command_no_chunked(
                 .execute(arguments)
                 .unwrap_or_else(|err| result::CommandResult::err(format!("{}", err)));
             HttpResponse::Ok().json(r)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ChunkedResponse {
+    rx: std::sync::mpsc::Receiver<String>,
+    waker: Arc<Mutex<RedarrowWaker>>,
+}
+
+impl Stream for ChunkedResponse {
+    type Item = Result<bytes::Bytes, actix_web::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.rx.try_recv() {
+            Err(_) => {
+                if let Ok(mut waker) = self.waker.lock() {
+                    waker.register(cx.waker());
+                } else {
+                    log::warn!("register waker failed to get lock");
+                }
+                Poll::Pending
+            }
+            Ok(result) => {
+                if result == "\0" {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Ready(Some(Ok(Bytes::from(result))))
+                }
+            }
         }
     }
 }
