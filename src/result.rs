@@ -24,7 +24,7 @@ impl CommandResult {
         exit_code: i32,
         time_cost: f64,
         start_time: f64,
-    ) -> CommandResult {
+    ) -> Self {
         CommandResult {
             stdout: Some(stdout),
             stderr: Some(stderr),
@@ -35,7 +35,7 @@ impl CommandResult {
         }
     }
 
-    pub fn chunked_ok(exit_code: i32, time_cost: f64, start_time: f64) -> CommandResult {
+    pub fn chunked_ok(exit_code: i32, time_cost: f64, start_time: f64) -> Self {
         CommandResult {
             stdout: None,
             stderr: None,
@@ -46,7 +46,7 @@ impl CommandResult {
         }
     }
 
-    pub fn err(err: String) -> CommandResult {
+    pub fn err(err: String) -> Self {
         CommandResult {
             stdout: None,
             stderr: None,

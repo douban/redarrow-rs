@@ -1,13 +1,19 @@
-use std::collections::BTreeMap;
 use std::str;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::result::CommandResult;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+#[derive(Serialize, Debug)]
+struct ClientParams {
+    chunked: Option<String>,
+    argument: Option<String>,
+}
 
 #[derive(Debug)]
 pub struct Client {
@@ -20,7 +26,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(host: String, port: u32, command: String, arguments: Vec<String>) -> Client {
+    pub fn new(host: String, port: u32, command: String, arguments: Vec<String>) -> Self {
         Client {
             host: host,
             port: port,
@@ -46,16 +52,19 @@ impl Client {
         )
     }
 
-    fn get_arguments(self: &Self) -> String {
-        self.arguments.join(" ")
+    fn get_arguments(self: &Self) -> Option<String> {
+        if self.arguments.is_empty() {
+            None
+        } else {
+            Some(self.arguments.join(" "))
+        }
     }
 
     pub async fn run_command(self: &Self) -> Result<CommandResult> {
-        let mut params = BTreeMap::new();
-        if !self.arguments.is_empty() {
-            params.insert("argument", self.get_arguments());
-        }
-
+        let params = ClientParams {
+            chunked: None,
+            argument: self.get_arguments(),
+        };
         let body = reqwest::Client::builder()
             .user_agent(self.user_agent.as_str())
             .connect_timeout(self.connect_timeout)
@@ -73,11 +82,10 @@ impl Client {
         self: &Self,
         tx: mpsc::Sender<(i8, Vec<u8>)>,
     ) -> Result<CommandResult> {
-        let mut params = BTreeMap::new();
-        params.insert("chunked", "1".to_string());
-        if !self.arguments.is_empty() {
-            params.insert("argument", self.get_arguments());
-        }
+        let params = ClientParams {
+            chunked: Some("1".to_string()),
+            argument: self.get_arguments(),
+        };
         let mut res = reqwest::Client::builder()
             .user_agent(self.user_agent.as_str())
             .connect_timeout(self.connect_timeout)
