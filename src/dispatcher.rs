@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,7 @@ use anyhow::{anyhow, Result};
 use glob::glob;
 use ini::Ini;
 use nix::sys::signal;
-use nix::unistd::Pid;
+use nix::unistd::{setsid, Pid};
 use regex::{Captures, Regex};
 use wait_timeout::ChildExt;
 
@@ -93,8 +94,14 @@ impl Command {
         let (cmd, args) = self.get_command(arguments)?;
 
         let start = SystemTime::now();
-        let mut child = process::Command::new(cmd)
-            .args(args)
+
+        let mut command = process::Command::new(&cmd);
+        command.args(args);
+        unsafe {
+            command.pre_exec(|| setsid().map_err(err_nix2io).map(|_| ()));
+        }
+
+        let mut child = command
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()?;
@@ -146,8 +153,13 @@ impl Command {
 
         let start = SystemTime::now();
 
-        let mut child = process::Command::new(&cmd)
-            .args(args)
+        let mut command = process::Command::new(&cmd);
+        command.args(args);
+        unsafe {
+            command.pre_exec(|| setsid().map_err(err_nix2io).map(|_| ()));
+        }
+
+        let mut child = command
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()?;
@@ -218,14 +230,23 @@ impl Command {
     }
 }
 
+fn err_nix2io(err: nix::Error) -> std::io::Error {
+    match err {
+        nix::Error::Sys(errno) => std::io::Error::from_raw_os_error(errno as i32),
+        nix::Error::InvalidPath => std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
+        _ => std::io::Error::new(std::io::ErrorKind::Other, err),
+    }
+}
+
 fn kill_child(child: &mut process::Child) -> Result<CommandResult> {
     let pid = Pid::from_raw(child.id() as i32);
-    signal::kill(pid, signal::SIGTERM).map_err(|e| anyhow!("Kill failed: {}", e))?;
+    signal::killpg(pid, signal::SIGTERM).map_err(|e| anyhow!("Kill failed: {}", e))?;
     let one_sec = Duration::from_secs(1);
     Ok(match child.wait_timeout(one_sec)? {
         Some(s) => CommandResult::err(format!("Time Limit Exceeded: {}", s)),
         None => {
-            signal::kill(pid, signal::SIGKILL).map_err(|e| anyhow!("Force kill failed: {}", e))?;
+            signal::killpg(pid, signal::SIGKILL)
+                .map_err(|e| anyhow!("Force kill failed: {}", e))?;
             CommandResult::err("Time Limit Exceeded: killed".to_string())
         }
     })
@@ -270,8 +291,7 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         }
 
         let mut args: Vec<Regex> = Vec::new();
-        let re = Regex::new(RE_ARGS)?;
-        for cap in re.captures_iter(exec) {
+        for cap in Regex::new(RE_ARGS)?.captures_iter(exec) {
             let arg_name = format!("arg{}", cap.get(1).map_or("0", |m| m.as_str()));
             let arg = prop
                 .get(arg_name.as_str())

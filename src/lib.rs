@@ -4,9 +4,9 @@ pub mod webclient;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-struct CommandParams {
-    chunked: Option<String>,
-    argument: Option<String>,
+pub struct CommandParams {
+    pub chunked: Option<u8>,
+    pub argument: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
