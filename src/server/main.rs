@@ -7,11 +7,10 @@ use argh::FromArgs;
 use bytes::Bytes;
 use futures::executor;
 use futures::Stream;
-use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
 
 use redarrow::dispatcher::{read_config, Configs, RedarrowWaker};
-use redarrow::CommandResult;
+use redarrow::{CommandParams, CommandResult};
 
 #[argh(description = "execute command for remote redarrow client")]
 #[derive(FromArgs, Debug)]
@@ -39,13 +38,6 @@ struct ServerArgs {
         description = "number of worker processes for handling requests"
     )]
     workers: usize,
-}
-
-// The query parameters for command.
-#[derive(Debug, Deserialize)]
-pub struct CommandOptions {
-    argument: Option<String>,
-    chunked: Option<u8>,
 }
 
 #[actix_rt::main]
@@ -122,7 +114,7 @@ async fn main() -> std::io::Result<()> {
 #[get("command/{command}")]
 async fn handlers_command(
     command: web::Path<String>,
-    opts: web::Query<CommandOptions>,
+    opts: web::Query<CommandParams>,
     configs: web::Data<Configs>,
 ) -> impl Responder {
     let chunked = match opts.chunked {

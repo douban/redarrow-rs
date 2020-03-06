@@ -1,4 +1,3 @@
-use std::str;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -76,7 +75,7 @@ impl Client {
         tx: mpsc::Sender<(i8, Vec<u8>)>,
     ) -> Result<CommandResult> {
         let params = CommandParams {
-            chunked: Some("1".to_string()),
+            chunked: Some(1),
             argument: self.get_arguments(),
         };
         let mut res = reqwest::Client::builder()
