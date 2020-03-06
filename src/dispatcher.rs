@@ -22,7 +22,7 @@ static RE_ARGS: &str = r"\$\{(\d+)\}";
 
 pub type Configs = HashMap<String, Command>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Command {
     name: String,
     exec: String,
