@@ -291,8 +291,7 @@ fn parse_config_file<P: AsRef<Path>>(config_file: P, cmds: &mut Configs) -> Resu
         }
 
         let mut args: Vec<Regex> = Vec::new();
-        let re = Regex::new(RE_ARGS)?;
-        for cap in re.captures_iter(exec) {
+        for cap in Regex::new(RE_ARGS)?.captures_iter(exec) {
             let arg_name = format!("arg{}", cap.get(1).map_or("0", |m| m.as_str()));
             let arg = prop
                 .get(arg_name.as_str())
