@@ -116,7 +116,7 @@ fn handle_command_chunked(
     let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
     let waker = Arc::new(Mutex::new(RedarrowWaker::new()));
     let mut wake_sender = waker.clone();
-    let child = std::thread::spawn(move || {
+    let _child = std::thread::spawn(move || {
         let ret = format!(
             "0> {}\n",
             cmd.execute_iter(arguments, tx_cmd.clone(), &mut wake_sender)
@@ -129,11 +129,24 @@ fn handle_command_chunked(
                 return;
             }
             Ok(()) => {
-                // if let Ok(mut waker) = wake_sender.lock() {
-                //     waker.wake();
-                // } else {
-                //     log::warn!("waker on command result failed to get lock");
-                // }
+                if let Ok(mut waker) = wake_sender.lock() {
+                    waker.wake();
+                } else {
+                    log::warn!("waker on command result failed to get lock");
+                }
+            }
+        }
+        match tx_cmd.send("\0\0".to_string()) {
+            Err(e) => {
+                log::warn!("send command end error: {}", e);
+                return;
+            }
+            Ok(()) => {
+                if let Ok(mut waker) = wake_sender.lock() {
+                    waker.wake();
+                } else {
+                    log::warn!("waker on command end failed to get lock");
+                }
             }
         }
     });
@@ -303,7 +316,7 @@ impl Stream for ChunkedResponse {
                 Poll::Pending
             }
             Ok(result) => {
-                if result == "\0" {
+                if result == "\0\0" {
                     Poll::Ready(None)
                 } else {
                     Poll::Ready(Some(Ok(Bytes::from(result))))
