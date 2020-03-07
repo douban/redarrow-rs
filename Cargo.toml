@@ -1,6 +1,6 @@
 [package]
 name = "redarrow"
-version = "0.14.1"
+version = "0.15.0"
 authors = ["everpcpc <git@everpcpc.com>"]
 edition = "2018"
 license = "BSD-3-Clause"
@@ -35,9 +35,8 @@ wait-timeout = "0.2"
 nix = "0.17"
 bytes = "0.5"
 log = "0.4"
-env_logger = "0.7"
-actix-web = "2"
-actix-utils = "1"
-actix-rt = "1"
+pretty_env_logger = "0.3"
+warp = "0.2"
+hyper = { version = "0.13", features = ["stream"] }
 futures = "0.3"
-tokio = { version = "0.2", features = ["signal"] }
+tokio = { version = "0.2", features = ["signal", "macros", "sync"] }
