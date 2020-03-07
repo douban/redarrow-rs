@@ -102,8 +102,6 @@ impl Client {
                     }
                 }
             }
-            let fd = parse_fd(&chunk);
-
             if last_fd >= 0 {
                 tmp.extend_from_slice(&chunk);
                 if line_ends {
@@ -113,6 +111,7 @@ impl Client {
                 }
                 continue;
             }
+            let fd = parse_fd(&chunk);
             if !line_ends {
                 tmp.extend_from_slice(&chunk[3..]);
                 last_fd = fd;
