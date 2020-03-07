@@ -56,10 +56,10 @@ fn run_single(args: ClientArgs) -> i32 {
                 Err(_) => eprintln!("Recv Error!"),
                 Ok((fd, line)) => match fd {
                     0 => break,
-                    1 => print!("{}", String::from_utf8_lossy(&line)),
-                    2 => eprint!("{}", String::from_utf8_lossy(&line)),
+                    1 => print!("{}", String::from_utf8(line).unwrap()),
+                    2 => eprint!("{}", String::from_utf8(line).unwrap()),
                     _ => {
-                        eprintln!("Unknown result: {}-{}", fd, String::from_utf8_lossy(&line));
+                        eprintln!("Unknown result: {}-{}", fd, String::from_utf8(line).unwrap());
                     }
                 },
             }
