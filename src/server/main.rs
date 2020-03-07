@@ -43,7 +43,8 @@ struct ServerArgs {
 
 #[tokio::main]
 async fn main() {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
+
     let args: ServerArgs = argh::from_env();
     let configs = match read_config(args.config.as_str()) {
         Ok(c) => {
@@ -58,29 +59,29 @@ async fn main() {
     let configs = Arc::new(configs);
     let configs = warp::any().map(move || configs.clone());
 
-    let handle_command = warp::path("command")
-        .and(warp::get())
-        .and(warp::path::param::<String>())
-        .and(warp::query::<CommandParams>())
-        .and(configs)
-        .and_then(handlers_command)
-        .with(warp::log("redarrow::http"));
+    let (tx, mut rx) = mpsc::channel::<&str>(2);
 
-    let (tx, mut rx) = mpsc::channel::<&str>(10);
-
-    let (_, server) = warp::serve(handle_command).bind_with_graceful_shutdown(
-        ([0, 0, 0, 0], args.port),
-        async move {
-            while let Some(res) = rx.recv().await {
-                match res {
-                    "TERM" => break,
-                    // TODO:(everpcpc) impl reload
-                    "HUP" => break,
-                    _ => log::error!("received invalid signal: {}", res),
-                }
+    let (addr, server) = warp::serve(
+        warp::path("command")
+            .and(warp::get())
+            .and(warp::path::param::<String>())
+            .and(warp::query::<CommandParams>())
+            .and(configs)
+            .and_then(handlers_command)
+            .with(warp::log("redarrow::http")),
+    )
+    .bind_with_graceful_shutdown(([0, 0, 0, 0], args.port), async move {
+        while let Some(res) = rx.recv().await {
+            match res {
+                "TERM" => break,
+                // TODO:(everpcpc) impl reload
+                "HUP" => break,
+                _ => log::error!("received invalid signal: {}", res),
             }
-        },
-    );
+        }
+    });
+
+    log::info!("listening on {}", addr);
 
     let mut stream_hup = signal(SignalKind::hangup()).unwrap();
     let mut hup_tx = tx.clone();
