@@ -118,23 +118,30 @@ async fn handlers_command(
     match configs.get(&command) {
         None => {
             let err = CommandResult::err(format!("Unknown Command: {}", command));
-            Ok(Box::new(warp::reply::with_status(
-                warp::reply::json(&err),
-                StatusCode::BAD_REQUEST,
-            )))
+            if chunked {
+                Ok(Box::new(warp::reply::with_status(
+                    format!("0> {}", err.to_json()),
+                    StatusCode::BAD_REQUEST,
+                )))
+            } else {
+                Ok(Box::new(warp::reply::with_status(
+                    warp::reply::json(&err),
+                    StatusCode::BAD_REQUEST,
+                )))
+            }
         }
         Some(cmd) => {
             if chunked {
-                let cmd = cmd.clone();
-                handle_command_chunked(cmd, arguments)
+                handle_command_chunked(cmd.clone(), arguments)
             } else {
-                let r = cmd
-                    .execute(arguments)
-                    .unwrap_or_else(|err| CommandResult::err(format!("{}", err)));
-                Ok(Box::new(warp::reply::with_status(
-                    warp::reply::json(&r),
-                    StatusCode::OK,
-                )))
+                let ret = match cmd.execute(arguments) {
+                    Err(e) => warp::reply::with_status(
+                        warp::reply::json(&CommandResult::err(format!("{}", e))),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ),
+                    Ok(r) => warp::reply::with_status(warp::reply::json(&r), StatusCode::OK),
+                };
+                Ok(Box::new(ret))
             }
         }
     }
