@@ -92,13 +92,18 @@ impl Client {
         while let Some(chunk) = res.chunk().await? {
             let mut line_ends = false;
             match chunk.last() {
-                None => continue,
+                None => {
+                    eprintln!("empty chunk received");
+                    continue
+                },
                 Some(char) => {
                     if *char == b'\n' {
                         line_ends = true;
                     }
                 }
             }
+            let fd = parse_fd(&chunk);
+
             if last_fd >= 0 {
                 tmp.extend_from_slice(&chunk);
                 if line_ends {
@@ -108,7 +113,6 @@ impl Client {
                 }
                 continue;
             }
-            let fd = parse_fd(&chunk);
             if !line_ends {
                 tmp.extend_from_slice(&chunk[3..]);
                 last_fd = fd;

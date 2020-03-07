@@ -120,7 +120,7 @@ async fn handlers_command(
             let err = CommandResult::err(format!("Unknown Command: {}", command));
             if chunked {
                 Ok(Box::new(warp::reply::with_status(
-                    format!("0> {}", err.to_json()),
+                    format!("0> {}\n", err.to_json()),
                     StatusCode::BAD_REQUEST,
                 )))
             } else {
@@ -157,9 +157,11 @@ fn handle_command_chunked(
     let _child = std::thread::spawn(move || {
         let ret = format!(
             "0> {}\n",
-            cmd.execute_iter(arguments, tx_cmd.clone(), &mut wake_sender)
-                .unwrap_or_else(|err| CommandResult::err(format!("{}", err)))
-                .to_json()
+            match cmd.execute_iter(arguments, tx_cmd.clone(), &mut wake_sender) {
+                Ok(r) => r,
+                Err(e) => CommandResult::err(format!("{}", e)),
+            }
+            .to_json()
         );
         match tx_cmd.send(ret) {
             Err(e) => {
