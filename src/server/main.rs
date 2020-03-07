@@ -4,9 +4,9 @@ use std::task::{Context, Poll};
 
 use argh::FromArgs;
 use bytes::Bytes;
-use futures::executor;
 use futures::Stream;
 use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::mpsc;
 use warp::http::StatusCode;
 use warp::Filter;
 
@@ -66,9 +66,40 @@ async fn main() {
         .and_then(handlers_command)
         .with(warp::log("redarrow::http"));
 
-    warp::serve(handle_command)
-        .run(([0, 0, 0, 0], args.port))
-        .await;
+    let (tx, mut rx) = mpsc::channel::<&str>(10);
+
+    let (_, server) = warp::serve(handle_command).bind_with_graceful_shutdown(
+        ([0, 0, 0, 0], args.port),
+        async move {
+            while let Some(res) = rx.recv().await {
+                match res {
+                    "TERM" => break,
+                    // TODO:(everpcpc) impl reload
+                    "HUP" => break,
+                    _ => log::error!("received invalid signal: {}", res),
+                }
+            }
+        },
+    );
+
+    let mut stream_hup = signal(SignalKind::hangup()).unwrap();
+    let mut hup_tx = tx.clone();
+    tokio::task::spawn(async move {
+        loop {
+            stream_hup.recv().await;
+            log::info!("SIGHUP received. Reloading...");
+            hup_tx.send("HUP").await.unwrap();
+        }
+    });
+    let mut stream_term = signal(SignalKind::terminate()).unwrap();
+    let mut term_tx = tx.clone();
+    tokio::task::spawn(async move {
+        stream_term.recv().await;
+        log::info!("SIGTERM received. Terminating...");
+        term_tx.send("TERM").await.unwrap();
+    });
+
+    tokio::task::spawn(server).await.unwrap()
 }
 
 async fn handlers_command(
@@ -158,141 +189,6 @@ fn handle_command_chunked(
     *response.body_mut() = hyper::Body::wrap_stream(r);
     Ok(Box::new(response))
 }
-
-// #[actix_rt::main]
-// async fn main() -> std::io::Result<()> {
-//     env_logger::init();
-//     let args: ServerArgs = argh::from_env();
-
-//     let configs = match read_config(args.config.as_str()) {
-//         Ok(c) => {
-//             log::info!("parsed {} commands, starting server...", &c.len());
-//             c
-//         }
-//         Err(e) => {
-//             log::error!("parse config error: {}", e);
-//             return Ok(());
-//         }
-//     };
-
-//     let (tx, rx) = std::sync::mpsc::channel::<&str>();
-
-//     let server = HttpServer::new(move || {
-//         App::new()
-//             .data(configs.clone())
-//             .wrap(middleware::Logger::default())
-//             .service(handlers_command)
-//     })
-//     .bind(format!("0.0.0.0:{}", args.port))?
-//     .workers(args.workers)
-//     .run();
-
-//     let srv = server.clone();
-//     std::thread::Builder::new()
-//         .name("signal receiver".to_string())
-//         .spawn(move || loop {
-//             let sig = rx.recv().unwrap_or("");
-//             match sig {
-//                 "TERM" => {
-//                     // stop server gracefully
-//                     executor::block_on(srv.stop(true));
-//                     break;
-//                 }
-//                 "HUP" => {}
-//                 _ => {
-//                     // wait 10ms if recv error
-//                     std::thread::sleep(std::time::Duration::from_millis(10));
-//                 }
-//             }
-//         })
-//         .unwrap();
-
-//     let mut stream_hup = signal(SignalKind::hangup())?;
-//     let hup_tx = tx.clone();
-//     actix_rt::spawn(async move {
-//         loop {
-//             stream_hup.recv().await;
-//             // TODO:(everpcpc) impl reload
-//             log::info!("SIGHUP received. Reloading...");
-//             hup_tx.send("TERM").unwrap();
-//         }
-//     });
-//     let mut stream_term = signal(SignalKind::terminate())?;
-//     let term_tx = tx.clone();
-//     actix_rt::spawn(async move {
-//         loop {
-//             stream_term.recv().await;
-//             log::info!("SIGTERM received. Terminating...");
-//             term_tx.send("TERM").unwrap();
-//         }
-//     });
-
-//     server.await
-// }
-
-// fn handle_command_chunked(
-//     command: &str,
-//     arguments: Vec<String>,
-//     configs: web::Data<Configs>,
-// ) -> HttpResponse {
-//     match configs.get(command) {
-//         None => HttpResponse::BadRequest().body(format!(
-//             "0> {}\n",
-//             CommandResult::err(format!("Unknown Command: {}", command)).to_json()
-//         )),
-//         Some(cmd) => {
-//             let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
-//             let waker = Arc::new(Mutex::new(RedarrowWaker::new()));
-//             let cmd = cmd.clone();
-//             let mut wake_sender = waker.clone();
-//             match std::thread::Builder::new()
-//                 .name(format!("runner for {}", command))
-//                 .spawn(move || {
-//                     let ret = format!(
-//                         "0> {}\n",
-//                         cmd.execute_iter(arguments, tx_cmd.clone(), &mut wake_sender)
-//                             .unwrap_or_else(|err| CommandResult::err(format!("{}", err)))
-//                             .to_json()
-//                     );
-//                     match tx_cmd.send(ret) {
-//                         Err(e) => {
-//                             log::warn!("send command result error: {}", e);
-//                             return;
-//                         }
-//                         Ok(()) => {
-//                             if let Ok(mut waker) = wake_sender.lock() {
-//                                 waker.wake();
-//                             } else {
-//                                 log::warn!("waker on command result failed to get lock");
-//                             }
-//                         }
-//                     }
-//                     // NOTE:(everpcpc) force end recv rx_cmd, do not wait for stdout/stderr
-//                     match tx_cmd.send("\0".to_string()) {
-//                         Err(e) => {
-//                             log::warn!("send command end error: {}", e);
-//                             return;
-//                         }
-//                         Ok(()) => {
-//                             // NOTE:(everpcpc) acturally this wake always false
-//                             if let Ok(mut waker) = wake_sender.lock() {
-//                                 waker.wake();
-//                             } else {
-//                                 log::warn!("waker on command end failed to get lock");
-//                             }
-//                         }
-//                     }
-//                 }) {
-//                 Ok(_) => HttpResponse::Ok().streaming(ChunkedResponse {
-//                     rx: rx_cmd,
-//                     waker: waker,
-//                 }),
-//                 Err(e) => HttpResponse::InternalServerError()
-//                     .json(CommandResult::err(format!("Failed to start task: {}", e))),
-//             }
-//         }
-//     }
-// }
 
 #[derive(Debug)]
 struct ChunkedResponse {
