@@ -75,7 +75,7 @@ async fn handlers_command(
     command: String,
     opts: CommandParams,
     configs: Arc<Configs>,
-) -> Result<impl warp::Reply, std::convert::Infallible> {
+) -> Result<Box<dyn warp::Reply>, std::convert::Infallible> {
     let chunked = match opts.chunked {
         None => false,
         Some(c) => c != 0,
@@ -87,55 +87,34 @@ async fn handlers_command(
     match configs.get(&command) {
         None => {
             let err = CommandResult::err(format!("Unknown Command: {}", command));
-            Ok(warp::reply::with_status(
+            Ok(Box::new(warp::reply::with_status(
                 warp::reply::json(&err),
                 StatusCode::BAD_REQUEST,
-            ))
+            )))
         }
         Some(cmd) => {
             if chunked {
-                //TODO:
-                let r = cmd
-                    .execute(arguments)
-                    .unwrap_or_else(|err| CommandResult::err(format!("{}", err)));
-                Ok(warp::reply::with_status(
-                    warp::reply::json(&r),
-                    StatusCode::OK,
-                ))
+                let cmd = cmd.clone();
+                handle_command_chunked(cmd, arguments)
             } else {
                 let r = cmd
                     .execute(arguments)
                     .unwrap_or_else(|err| CommandResult::err(format!("{}", err)));
-                Ok(warp::reply::with_status(
+                Ok(Box::new(warp::reply::with_status(
                     warp::reply::json(&r),
                     StatusCode::OK,
-                ))
-                // handle_command_no_chunked(cmd, arguments)
+                )))
             }
         }
     }
 }
 
-// fn handle_command_no_chunked(
-//     cmd: Command,
-//     arguments: Vec<String>,
-// ) -> Result<impl warp::Reply, std::convert::Infallible> {
-//     let r = cmd
-//         .execute(arguments)
-//         .unwrap_or_else(|err| CommandResult::err(format!("{}", err)));
-//     Ok(warp::reply::with_status(
-//         warp::reply::json(&r),
-//         StatusCode::OK,
-//     ))
-// }
-
 fn handle_command_chunked(
     cmd: Command,
     arguments: Vec<String>,
-) -> Result<impl warp::Reply, std::convert::Infallible> {
+) -> Result<Box<dyn warp::Reply>, std::convert::Infallible> {
     let (tx_cmd, rx_cmd) = std::sync::mpsc::channel::<String>();
     let waker = Arc::new(Mutex::new(RedarrowWaker::new()));
-    // let cmd = cmd.clone();
     let mut wake_sender = waker.clone();
     let child = std::thread::spawn(move || {
         let ret = format!(
@@ -159,16 +138,12 @@ fn handle_command_chunked(
         }
     });
     let r = ChunkedResponse {
-        rx: Arc::new(rx_cmd),
+        rx: rx_cmd,
         waker: waker,
     };
-    // let t = warp::Response::builder()
-    //     .status(StatusCode::OK)
-    //     .body(Body::wrap_stream(r))
     let mut response = hyper::Response::new(hyper::Body::empty());
     *response.body_mut() = hyper::Body::wrap_stream(r);
-
-    Ok(response)
+    Ok(Box::new(response))
 }
 
 // #[actix_rt::main]
@@ -308,9 +283,11 @@ fn handle_command_chunked(
 
 #[derive(Debug)]
 struct ChunkedResponse {
-    rx: Arc<std::sync::mpsc::Receiver<String>>,
+    rx: std::sync::mpsc::Receiver<String>,
     waker: Arc<Mutex<RedarrowWaker>>,
 }
+
+unsafe impl Sync for ChunkedResponse {}
 
 impl Stream for ChunkedResponse {
     type Item = Result<bytes::Bytes, warp::Error>;
