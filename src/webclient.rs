@@ -94,8 +94,8 @@ impl Client {
             match chunk.last() {
                 None => {
                     eprintln!("empty chunk received");
-                    continue
-                },
+                    continue;
+                }
                 Some(char) => {
                     if *char == b'\n' {
                         line_ends = true;
@@ -112,15 +112,21 @@ impl Client {
                 continue;
             }
             let fd = parse_fd(&chunk);
-            if !line_ends {
-                tmp.extend_from_slice(&chunk[3..]);
-                last_fd = fd;
-                continue;
-            }
-            if fd == 0 {
-                return Ok(serde_json::from_slice(&chunk[3..])?);
-            } else {
-                tx.send((fd, chunk[3..].to_vec()))?;
+            match fd {
+                0 => {
+                    return Ok(serde_json::from_slice(&chunk[3..])?);
+                }
+                1 | 2 => {
+                    if line_ends {
+                        tx.send((fd, chunk[3..].to_vec()))?;
+                    } else {
+                        tmp.extend_from_slice(&chunk[3..]);
+                        last_fd = fd;
+                    }
+                }
+                _ => {
+                    eprintln!("Response Error: {:?}", chunk);
+                }
             }
         }
         Ok(CommandResult::err("Command Unfinished".to_string()))
