@@ -48,8 +48,7 @@ fn run_single(args: ClientArgs) -> i32 {
     let mut client = Client::new(args.host, args.port, args.command, args.arguments);
     client.set_user_agent("Redarrow-client");
     let (tx, rx) = mpsc::channel::<(i8, Vec<u8>)>();
-    // NOTE: will not join this thread
-    let _child = thread::Builder::new()
+    let child = thread::Builder::new()
         .name("output printer".to_string())
         .spawn(move || loop {
             match rx.recv() {
@@ -63,7 +62,7 @@ fn run_single(args: ClientArgs) -> i32 {
                     }
                 },
             }
-        });
+        }).unwrap();
     let mut rt = Runtime::new().unwrap();
     let exit_code = match rt.block_on(client.run_realtime(tx.clone())) {
         Err(e) => {
@@ -87,6 +86,7 @@ fn run_single(args: ClientArgs) -> i32 {
     tx.send((0, Vec::new())).unwrap_or_else(|_| {
         eprintln!("Printer Unexpectedly Exited!",);
     });
+    child.join().unwrap();
     exit_code
 }
 
