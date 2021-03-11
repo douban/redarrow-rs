@@ -63,7 +63,7 @@ fn run_single(args: ClientArgs) -> i32 {
                 },
             }
         }).unwrap();
-    let mut rt = Runtime::new().unwrap();
+    let rt = Runtime::new().unwrap();
     let exit_code = match rt.block_on(client.run_realtime(tx.clone())) {
         Err(e) => {
             eprintln!("ClientError: {}", e);
@@ -104,7 +104,7 @@ fn run_parallel(args: ClientArgs) -> i32 {
             args.arguments.clone(),
         );
         client.set_user_agent("Redarrow-client");
-        let mut rt = Runtime::new().unwrap();
+        let rt = Runtime::new().unwrap();
         let child = thread::Builder::new()
             .name(format!("runner on {}", host))
             .spawn(move || match rt.block_on(client.run_command()) {

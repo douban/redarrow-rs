@@ -118,7 +118,7 @@ fn main() {
 
     let mut client = Client::new(args.host, 4205, args.command, arguments);
     client.set_user_agent("Redarrow-check");
-    let mut rt = Runtime::new().unwrap();
+    let rt = Runtime::new().unwrap();
     let result = rt.block_on(client.run_command());
     match result {
         Ok(v) => {

@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use argh::FromArgs;
-use bytes::Bytes;
 use futures::Stream;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
@@ -84,7 +83,7 @@ async fn main() {
     log::info!("listening on {}", addr);
 
     let mut stream_hup = signal(SignalKind::hangup()).unwrap();
-    let mut hup_tx = tx.clone();
+    let hup_tx = tx.clone();
     tokio::task::spawn(async move {
         loop {
             stream_hup.recv().await;
@@ -93,7 +92,7 @@ async fn main() {
         }
     });
     let mut stream_term = signal(SignalKind::terminate()).unwrap();
-    let mut term_tx = tx.clone();
+    let term_tx = tx.clone();
     tokio::task::spawn(async move {
         stream_term.recv().await;
         log::info!("SIGTERM received. Terminating...");
@@ -195,9 +194,9 @@ fn handle_command_chunked(
         rx: rx_cmd,
         waker: waker,
     };
-    let mut response = hyper::Response::new(hyper::Body::empty());
-    *response.body_mut() = hyper::Body::wrap_stream(r);
-    Ok(Box::new(response))
+    let mut res = hyper::Response::new(hyper::Body::empty());
+    *res.body_mut() = hyper::Body::wrap_stream(r);
+    Ok(Box::new(res))
 }
 
 #[derive(Debug)]
@@ -209,7 +208,7 @@ struct ChunkedResponse {
 unsafe impl Sync for ChunkedResponse {}
 
 impl Stream for ChunkedResponse {
-    type Item = Result<bytes::Bytes, warp::Error>;
+    type Item = Result<String, warp::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.rx.try_recv() {
@@ -225,7 +224,7 @@ impl Stream for ChunkedResponse {
                 if result == "\0\0" {
                     Poll::Ready(None)
                 } else {
-                    Poll::Ready(Some(Ok(Bytes::from(result))))
+                    Poll::Ready(Some(Ok(result)))
                 }
             }
         }
