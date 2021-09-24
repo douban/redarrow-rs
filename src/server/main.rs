@@ -189,6 +189,12 @@ fn handle_command_chunked(
                 }
             }
         }
+        // wake last in case magic end word not received
+        if let Ok(mut waker) = wake_sender.lock() {
+            waker.wake();
+        } else {
+            log::warn!("waker last failed to get lock");
+        }
     });
     let r = ChunkedResponse {
         rx: rx_cmd,
