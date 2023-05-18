@@ -8,6 +8,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use warp::http::StatusCode;
 use warp::Filter;
+use warp::{Rejection, Reply};
 
 use redarrow::dispatcher::{read_config, Command, Configs, RedarrowWaker};
 use redarrow::{CommandParams, CommandResult};
@@ -42,6 +43,7 @@ struct ServerArgs {
 
 #[tokio::main]
 async fn main() {
+    let metric_route = warp::path!("metrics").and_then(metrics_handler);
     pretty_env_logger::init_timed();
 
     let args: ServerArgs = argh::from_env();
@@ -61,13 +63,14 @@ async fn main() {
     let (tx, mut rx) = mpsc::channel::<&str>(2);
 
     let (addr, server) = warp::serve(
-        warp::path("command")
+        metric_route.or(
+            warp::path("command")
             .and(warp::get())
             .and(warp::path::param::<String>())
             .and(warp::query::<CommandParams>())
             .and(configs)
             .and_then(handlers_command)
-            .with(warp::log("redarrow::http")),
+            .with(warp::log("redarrow::http"))),
     )
     .bind_with_graceful_shutdown(([0, 0, 0, 0], args.port), async move {
         while let Some(res) = rx.recv().await {
@@ -107,7 +110,7 @@ async fn handlers_command(
     opts: CommandParams,
     configs: Arc<Configs>,
 ) -> Result<Box<dyn warp::Reply>, std::convert::Infallible> {
-    let chunked = match opts.chunked {
+    let chunked: bool = match opts.chunked {
         None => false,
         Some(c) => c != 0,
     };
@@ -235,4 +238,25 @@ impl Stream for ChunkedResponse {
             }
         }
     }
+}
+
+async fn metrics_handler() -> Result<impl Reply, Rejection> {
+    use prometheus::Encoder;
+    let encoder = prometheus::TextEncoder::new();
+
+
+    let mut buffer = Vec::new();
+    if let Err(e) = encoder.encode(&prometheus::gather(), &mut buffer) {
+        eprintln!("could not encode prometheus metrics: {}", e);
+    };
+    let res_custom = match String::from_utf8(buffer.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("prometheus metrics could not be from_utf8'd: {}", e);
+            String::default()
+        }
+    };
+    buffer.clear();
+
+    Ok(res_custom)
 }
