@@ -227,21 +227,26 @@ impl Command {
             // FIXME:(everpcpc) stdout_child and stderr_child should be force terminated
             None => kill_child(&mut child),
             Some(s) => {
-                COMMANDS.with_label_values(&["ok"]).inc();
                 stdout_child
                     .join()
                     .map_err(|e| anyhow!("stdout failed: {:?}", e))?;
                 stderr_child
                     .join()
                     .map_err(|e| anyhow!("stderr failed: {:?}", e))?;
-                Ok(match s.code() {
-                    None => CommandResult::err("Terminated by signal".to_string()),
-                    Some(code) => CommandResult::chunked_ok(
-                        code,
-                        start.elapsed()?.as_secs_f64(),
-                        start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
-                    ),
-                })
+                match s.code() {
+                    None => {
+                        COMMANDS.with_label_values(&["terminated", ""]).inc();
+                        Ok(CommandResult::err("Terminated by signal".to_string()))
+                    },
+                    Some(code) => {
+                        COMMANDS.with_label_values(&["ok", &code.to_string()]).inc();
+                        Ok(CommandResult::chunked_ok(
+                            code,
+                            start.elapsed()?.as_secs_f64(),
+                            start.duration_since(UNIX_EPOCH)?.as_secs_f64(),
+                        ))
+                    },
+                }
             }
         }
     }
@@ -256,7 +261,7 @@ fn err_nix2io(err: nix::Error) -> std::io::Error {
 }
 
 fn kill_child(child: &mut process::Child) -> Result<CommandResult> {
-    COMMANDS.with_label_values(&["timeout"]).inc();
+    COMMANDS.with_label_values(&["timeout", ""]).inc();
     let pid = Pid::from_raw(child.id() as i32);
     signal::killpg(pid, signal::SIGTERM).map_err(|e| anyhow!("Kill failed: {}", e))?;
     let one_sec = Duration::from_secs(1);
