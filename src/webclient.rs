@@ -56,6 +56,7 @@ impl Client {
         let params = CommandParams {
             chunked: None,
             argument: self.get_arguments(),
+            format: None,
         };
         let body = reqwest::Client::builder()
             .user_agent(self.user_agent.as_str())
@@ -77,6 +78,7 @@ impl Client {
         let params = CommandParams {
             chunked: Some(1),
             argument: self.get_arguments(),
+            format: None,
         };
         let mut res = reqwest::Client::builder()
             .user_agent(self.user_agent.as_str())

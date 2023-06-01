@@ -4,6 +4,7 @@ use std::task::{Context, Poll};
 
 use argh::FromArgs;
 use futures::Stream;
+use prometheus::{Registry, GaugeVec};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use warp::http::StatusCode;
@@ -118,9 +119,21 @@ async fn handlers_command(
         None => Vec::new(),
         Some(a) => a.split(" ").map(|x| x.to_string()).collect(),
     };
+    let format: String = match &opts.format {
+        None => "json".to_string(),
+        Some(f) if f == "json" => "json".to_string(),
+        Some(f) if f == "prometheus" => "prometheus".to_string(),
+        Some(_f) => "json".to_string(),
+    };
+    if chunked && format != "json" {
+        return Ok(Box::new(warp::reply::with_status(
+            format!("0> {}\n", "chunked only support json format"),
+            StatusCode::BAD_REQUEST,
+        )));
+    }
     match configs.get(&command) {
         None => {
-            let err = CommandResult::err(format!("Unknown Command: {}", command));
+            let err: CommandResult = CommandResult::err(format!("Unknown Command: {}", command));
             if chunked {
                 Ok(Box::new(warp::reply::with_status(
                     format!("0> {}\n", err.to_json()),
@@ -137,14 +150,21 @@ async fn handlers_command(
             if chunked {
                 handle_command_chunked(cmd.clone(), arguments)
             } else {
-                let ret = match cmd.execute(arguments) {
-                    Err(e) => warp::reply::with_status(
+                match cmd.execute(arguments) {
+                    Err(e) => Ok(Box::new(warp::reply::with_status(
                         warp::reply::json(&CommandResult::err(format!("{}", e))),
                         StatusCode::INTERNAL_SERVER_ERROR,
-                    ),
-                    Ok(r) => warp::reply::with_status(warp::reply::json(&r), StatusCode::OK),
-                };
-                Ok(Box::new(ret))
+                    ))),
+                    Ok(r) => {
+                        print!("test");
+                        if format == "prometheus" {
+                            Ok(Box::new(warp::reply::with_status(
+                                warp::reply::with_header(r.to_prometheus(), "content-type", "text/plain"), StatusCode::OK)))
+                        } else {
+                            Ok(Box::new(warp::reply::with_status(warp::reply::json(&r), StatusCode::OK)))
+                        }
+                    }
+                }
             }
         }
     }
