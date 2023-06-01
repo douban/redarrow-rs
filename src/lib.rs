@@ -73,7 +73,7 @@ impl CommandResult {
     }
 
     pub fn to_prometheus(self: &Self) -> String {
-        // Create a Counter.
+        // Create metrics.
         let command_success_opt = Opts::new("redarrow_command_success", "command result success, 1 for success, 0 for failed");
         let command_success = Gauge::with_opts(command_success_opt).unwrap();
         let command_return_code_opt = Opts::new("redarrow_command_return_code", "command return code");
