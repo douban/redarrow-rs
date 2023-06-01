@@ -133,7 +133,7 @@ async fn handlers_command(
     }
     match configs.get(&command) {
         None => {
-            let err: CommandResult = CommandResult::err(format!("Unknown Command: {}", command));
+            let err = CommandResult::err(format!("Unknown Command: {}", command));
             if chunked {
                 Ok(Box::new(warp::reply::with_status(
                     format!("0> {}\n", err.to_json()),
