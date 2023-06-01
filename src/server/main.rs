@@ -156,7 +156,6 @@ async fn handlers_command(
                         StatusCode::INTERNAL_SERVER_ERROR,
                     ))),
                     Ok(r) => {
-                        print!("test");
                         if format == "prometheus" {
                             Ok(Box::new(warp::reply::with_status(
                                 warp::reply::with_header(r.to_prometheus(), "content-type", "text/plain"), StatusCode::OK)))

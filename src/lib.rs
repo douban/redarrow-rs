@@ -107,15 +107,13 @@ impl CommandResult {
             }
         }
 
-
-
         // Gather the metrics.
         let mut buffer = vec![];
         let encoder = TextEncoder::new();
         let metric_families = r.gather();
         encoder.encode(&metric_families, &mut buffer).unwrap();
 
-        // Output to the standard output.
+        // Output as string
         String::from_utf8(buffer).unwrap()
     }
 }
